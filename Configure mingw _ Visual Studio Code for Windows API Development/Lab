@@ -1,0 +1,264 @@
+ Configure mingw + Visual Studio Code for Windows API Development
+Learning Objectives
+By completing this lab, you will:
+
+Install and configure mingw-w64 cross-compiler on Linux
+Set up Visual Studio Code for Windows API development
+Create and compile a Windows API "Hello World" program
+Verify cross-compilation functionality for Windows targets
+Prerequisites
+Basic knowledge of C programming
+Familiarity with command-line operations
+Understanding of compilation concepts
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided machine is bare metal with no pre-installed development tools, so you will install all required components during this lab.
+
+Task 1: Install mingw-w64 and Configure Environment
+Subtask 1.1: Update System and Install mingw-w64
+# Update package manager
+sudo apt update
+
+# Install mingw-w64 cross-compiler
+sudo apt install -y mingw-w64 mingw-w64-tools
+
+# Verify installation
+x86_64-w64-mingw32-gcc --version
+Subtask 1.2: Configure Environment Variables
+# Add mingw to PATH (temporary for current session)
+export PATH="/usr/bin:$PATH"
+
+# Make permanent by adding to .bashrc
+echo 'export MINGW_PREFIX=x86_64-w64-mingw32' >> ~/.bashrc
+echo 'export CC=$MINGW_PREFIX-gcc' >> ~/.bashrc
+echo 'export CXX=$MINGW_PREFIX-g++' >> ~/.bashrc
+
+# Reload environment
+source ~/.bashrc
+Subtask 1.3: Verify mingw Installation
+# Check available mingw tools
+ls /usr/bin/*mingw32*
+
+# Test basic compilation capability
+echo 'int main(){return 0;}' > test.c
+x86_64-w64-mingw32-gcc test.c -o test.exe
+file test.exe
+rm test.c test.exe
+Task 2: Set up Visual Studio Code for Windows Development
+Subtask 2.1: Install Visual Studio Code
+# Download and install VS Code
+wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+sudo install -o root -g root -m 644 packages.microsoft.gpg /etc/apt/trusted.gpg.d/
+sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+
+sudo apt update
+sudo apt install -y code
+Subtask 2.2: Create Project Directory Structure
+# Create project directory
+mkdir -p ~/windows-api-project
+cd ~/windows-api-project
+
+# Create source directory
+mkdir src
+mkdir build
+Subtask 2.3: Configure VS Code Settings
+# Create .vscode directory for project settings
+mkdir .vscode
+
+# Create tasks.json for build configuration
+cat > .vscode/tasks.json << 'EOF'
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-windows",
+            "type": "shell",
+            "command": "x86_64-w64-mingw32-gcc",
+            "args": [
+                "-o",
+                "build/app.exe",
+                "src/*.c",
+                "-luser32",
+                "-lgdi32",
+                "-lkernel32"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ]
+}
+EOF
+
+# Create c_cpp_properties.json for IntelliSense
+cat > .vscode/c_cpp_properties.json << 'EOF'
+{
+    "configurations": [
+        {
+            "name": "MinGW-w64",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/x86_64-w64-mingw32/include/**"
+            ],
+            "defines": [
+                "_WIN32",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compilerPath": "/usr/bin/x86_64-w64-mingw32-gcc",
+            "cStandard": "c11",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}
+EOF
+Task 3: Test Setup with Windows API "Hello World" Program
+Subtask 3.1: Create Windows API Hello World Program
+# Create the main source file
+cat > src/main.c << 'EOF'
+#include <windows.h>
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
+                   LPSTR lpCmdLine, int nCmdShow) {
+    MessageBoxA(NULL, "Hello World from Windows API!", "Success", MB_OK);
+    return 0;
+}
+EOF
+Subtask 3.2: Create Console Version for Testing
+# Create console version for easier testing
+cat > src/console.c << 'EOF'
+#include <stdio.h>
+#include <windows.h>
+
+int main() {
+    printf("Hello World from Windows API Console!\n");
+    printf("This program was cross-compiled on Linux for Windows.\n");
+    
+    // Test Windows API function
+    DWORD version = GetVersion();
+    printf("Windows version info available.\n");
+    
+    return 0;
+}
+EOF
+Subtask 3.3: Compile and Test Programs
+# Compile GUI version
+x86_64-w64-mingw32-gcc -o build/hello_gui.exe src/main.c -luser32 -lgdi32 -lkernel32
+
+# Compile console version
+x86_64-w64-mingw32-gcc -o build/hello_console.exe src/console.c -lkernel32
+
+# Verify executables were created
+ls -la build/
+file build/*.exe
+Subtask 3.4: Test VS Code Integration
+# Open project in VS Code
+code .
+In VS Code:
+
+Open src/main.c
+Press Ctrl+Shift+P and type "Tasks: Run Build Task"
+Select "build-windows"
+Verify compilation succeeds in terminal
+Subtask 3.5: Create Build Script
+# Create automated build script
+cat > build.sh << 'EOF'
+#!/bin/bash
+
+echo "Building Windows API project..."
+
+# Create build directory if it doesn't exist
+mkdir -p build
+
+# Compile GUI application
+echo "Compiling GUI application..."
+x86_64-w64-mingw32-gcc -o build/hello_gui.exe src/main.c -luser32 -lgdi32 -lkernel32
+
+# Compile console application
+echo "Compiling console application..."
+x86_64-w64-mingw32-gcc -o build/hello_console.exe src/console.c -lkernel32
+
+# Check if builds were successful
+if [ -f "build/hello_gui.exe" ] && [ -f "build/hello_console.exe" ]; then
+    echo "Build successful!"
+    echo "Files created:"
+    ls -la build/*.exe
+else
+    echo "Build failed!"
+    exit 1
+fi
+EOF
+
+# Make script executable
+chmod +x build.sh
+
+# Test build script
+./build.sh
+Verification Steps
+Verify Complete Setup
+# Check mingw installation
+which x86_64-w64-mingw32-gcc
+
+# Verify VS Code installation
+code --version
+
+# Check project structure
+tree ~/windows-api-project
+
+# Verify executables
+file build/*.exe | grep "PE32+"
+Test Cross-Compilation Capabilities
+# Create advanced Windows API test
+cat > src/advanced_test.c << 'EOF'
+#include <windows.h>
+#include <stdio.h>
+
+int main() {
+    // Test various Windows API functions
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    
+    printf("Cross-compilation test successful!\n");
+    printf("Target architecture: %s\n", 
+           (sysInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64) ? 
+           "x64" : "x86");
+    
+    return 0;
+}
+EOF
+
+# Compile advanced test
+x86_64-w64-mingw32-gcc -o build/advanced_test.exe src/advanced_test.c -lkernel32
+
+# Verify compilation
+echo "Advanced test compilation: $([ -f build/advanced_test.exe ] && echo 'SUCCESS' || echo 'FAILED')"
+Troubleshooting Common Issues
+Issue: mingw-w64 not found
+
+# Reinstall mingw-w64
+sudo apt remove mingw-w64
+sudo apt update
+sudo apt install mingw-w64
+Issue: VS Code IntelliSense not working
+
+# Install C/C++ extension
+code --install-extension ms-vscode.cpptools
+Issue: Build fails with linking errors
+
+# Check library linking order
+x86_64-w64-mingw32-gcc src/main.c -luser32 -lgdi32 -lkernel32 -o build/test.exe
+Conclusion
+You have successfully configured a complete Windows API development environment on Linux using mingw-w64 and Visual Studio Code. This setup enables you to:
+
+Cross-compile Windows applications from Linux
+Develop Windows API programs with full IntelliSense support
+Build both console and GUI Windows applications
+Use modern development tools for Windows-targeted software
+This cross-platform development approach is valuable for creating Windows software in Linux environments, supporting CI/CD pipelines, and maintaining consistent development workflows across different operating systems.

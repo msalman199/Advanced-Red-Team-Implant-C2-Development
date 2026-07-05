@@ -1,0 +1,443 @@
+Recreate GetProcAddress in C
+Learning Objectives
+By completing this lab, you will:
+
+Understand how dynamic library loading works in Linux
+Implement a custom function resolver similar to Windows GetProcAddress
+Parse ELF file structures to locate function symbols
+Create a cross-platform function pointer resolution system
+Prerequisites
+Basic knowledge of C programming
+Understanding of pointers and memory management
+Familiarity with Linux command line
+Basic knowledge of dynamic libraries and linking concepts
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided machine is bare metal with no pre-installed development tools, so you will install the required tools during the lab.
+
+Task 1: Set Up Development Environment
+Subtask 1.1: Install Required Tools
+# Update package manager
+sudo apt update
+
+# Install GCC compiler and development tools
+sudo apt install -y gcc build-essential
+
+# Install library development headers
+sudo apt install -y libc6-dev
+
+# Verify installation
+gcc --version
+Subtask 1.2: Create Project Directory
+# Create and navigate to project directory
+mkdir ~/getprocaddr_lab
+cd ~/getprocaddr_lab
+
+# Create source files
+touch custom_getprocaddr.c
+touch test_program.c
+touch Makefile
+Task 2: Implement Custom GetProcAddress Function
+Subtask 2.1: Create the Core Function Resolver
+Create the main implementation file:
+
+nano custom_getprocaddr.c
+Add the following code:
+
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dlfcn.h>
+#include <link.h>
+#include <elf.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+
+typedef struct {
+    void* base_addr;
+    char* name;
+    void* handle;
+} loaded_module_t;
+
+// Custom GetProcAddress implementation
+void* custom_get_proc_address(void* module_handle, const char* proc_name) {
+    if (!module_handle || !proc_name) {
+        return NULL;
+    }
+    
+    // Use dlsym for dynamic symbol resolution
+    void* symbol = dlsym(module_handle, proc_name);
+    if (symbol) {
+        printf("[+] Found symbol '%s' at address: %p\n", proc_name, symbol);
+        return symbol;
+    }
+    
+    printf("[-] Symbol '%s' not found: %s\n", proc_name, dlerror());
+    return NULL;
+}
+
+// Custom LoadLibrary implementation
+void* custom_load_library(const char* library_name) {
+    if (!library_name) {
+        return NULL;
+    }
+    
+    void* handle = dlopen(library_name, RTLD_LAZY);
+    if (!handle) {
+        printf("[-] Failed to load library '%s': %s\n", library_name, dlerror());
+        return NULL;
+    }
+    
+    printf("[+] Successfully loaded library: %s\n", library_name);
+    return handle;
+}
+
+// Enhanced function resolver with symbol enumeration
+int enumerate_symbols(void* handle, const char* filter) {
+    if (!handle) {
+        return -1;
+    }
+    
+    // Get library info
+    struct link_map* map;
+    if (dlinfo(handle, RTLD_DI_LINKMAP, &map) != 0) {
+        printf("[-] Failed to get library information\n");
+        return -1;
+    }
+    
+    printf("[+] Library base address: %p\n", (void*)map->l_addr);
+    printf("[+] Library name: %s\n", map->l_name);
+    
+    return 0;
+}
+
+// Function to resolve address from function name
+void* resolve_function_address(const char* library_path, const char* function_name) {
+    void* handle = custom_load_library(library_path);
+    if (!handle) {
+        return NULL;
+    }
+    
+    void* func_ptr = custom_get_proc_address(handle, function_name);
+    return func_ptr;
+}
+
+// Cleanup function
+void custom_free_library(void* handle) {
+    if (handle) {
+        dlclose(handle);
+        printf("[+] Library handle closed\n");
+    }
+}
+Subtask 2.2: Create Header File
+nano custom_getprocaddr.h
+Add the header definitions:
+
+#ifndef CUSTOM_GETPROCADDR_H
+#define CUSTOM_GETPROCADDR_H
+
+// Function prototypes
+void* custom_get_proc_address(void* module_handle, const char* proc_name);
+void* custom_load_library(const char* library_name);
+int enumerate_symbols(void* handle, const char* filter);
+void* resolve_function_address(const char* library_path, const char* function_name);
+void custom_free_library(void* handle);
+
+#endif
+Task 3: Create Test Program
+Subtask 3.1: Implement Test Cases
+nano test_program.c
+Add comprehensive test code:
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include "custom_getprocaddr.h"
+
+// Function pointer types for testing
+typedef double (*sqrt_func_t)(double);
+typedef int (*printf_func_t)(const char*, ...);
+typedef void* (*malloc_func_t)(size_t);
+
+void test_math_functions() {
+    printf("\n=== Testing Math Library Functions ===\n");
+    
+    // Load math library
+    void* math_handle = custom_load_library("libm.so.6");
+    if (!math_handle) {
+        printf("[-] Failed to load math library\n");
+        return;
+    }
+    
+    // Get sqrt function
+    sqrt_func_t sqrt_ptr = (sqrt_func_t)custom_get_proc_address(math_handle, "sqrt");
+    if (sqrt_ptr) {
+        double result = sqrt_ptr(16.0);
+        printf("[+] sqrt(16.0) = %.2f\n", result);
+    }
+    
+    // Get sin function
+    double (*sin_ptr)(double) = (double(*)(double))custom_get_proc_address(math_handle, "sin");
+    if (sin_ptr) {
+        double result = sin_ptr(3.14159 / 2);
+        printf("[+] sin(π/2) = %.6f\n", result);
+    }
+    
+    custom_free_library(math_handle);
+}
+
+void test_libc_functions() {
+    printf("\n=== Testing LibC Functions ===\n");
+    
+    // Load C library
+    void* libc_handle = custom_load_library("libc.so.6");
+    if (!libc_handle) {
+        printf("[-] Failed to load libc\n");
+        return;
+    }
+    
+    // Get malloc function
+    malloc_func_t malloc_ptr = (malloc_func_t)custom_get_proc_address(libc_handle, "malloc");
+    if (malloc_ptr) {
+        void* ptr = malloc_ptr(100);
+        printf("[+] malloc(100) returned: %p\n", ptr);
+        
+        // Get free function and clean up
+        void (*free_ptr)(void*) = (void(*)(void*))custom_get_proc_address(libc_handle, "free");
+        if (free_ptr && ptr) {
+            free_ptr(ptr);
+            printf("[+] Memory freed successfully\n");
+        }
+    }
+    
+    // Test strlen function
+    size_t (*strlen_ptr)(const char*) = (size_t(*)(const char*))custom_get_proc_address(libc_handle, "strlen");
+    if (strlen_ptr) {
+        const char* test_str = "Hello, World!";
+        size_t len = strlen_ptr(test_str);
+        printf("[+] strlen('%s') = %zu\n", test_str, len);
+    }
+    
+    custom_free_library(libc_handle);
+}
+
+void test_symbol_enumeration() {
+    printf("\n=== Testing Symbol Enumeration ===\n");
+    
+    void* handle = custom_load_library("libm.so.6");
+    if (handle) {
+        enumerate_symbols(handle, NULL);
+        custom_free_library(handle);
+    }
+}
+
+void test_direct_resolution() {
+    printf("\n=== Testing Direct Function Resolution ===\n");
+    
+    // Resolve function directly
+    void* cos_func = resolve_function_address("libm.so.6", "cos");
+    if (cos_func) {
+        double (*cos_ptr)(double) = (double(*)(double))cos_func;
+        double result = cos_ptr(0.0);
+        printf("[+] cos(0.0) = %.6f\n", result);
+    }
+}
+
+int main() {
+    printf("Custom GetProcAddress Implementation Test\n");
+    printf("=========================================\n");
+    
+    test_math_functions();
+    test_libc_functions();
+    test_symbol_enumeration();
+    test_direct_resolution();
+    
+    printf("\n[+] All tests completed!\n");
+    return 0;
+}
+Subtask 3.2: Create Makefile
+nano Makefile
+Add build configuration:
+
+CC = gcc
+CFLAGS = -Wall -Wextra -std=c99 -g
+LDFLAGS = -ldl -lm
+
+TARGET = test_getprocaddr
+SOURCES = custom_getprocaddr.c test_program.c
+OBJECTS = $(SOURCES:.c=.o)
+
+all: $(TARGET)
+
+$(TARGET): $(OBJECTS)
+    $(CC) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
+
+%.o: %.c
+    $(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+    rm -f $(OBJECTS) $(TARGET)
+
+test: $(TARGET)
+    ./$(TARGET)
+
+.PHONY: all clean test
+Task 4: Build and Test Implementation
+Subtask 4.1: Compile the Program
+# Build the project
+make clean
+make
+
+# Verify compilation
+ls -la test_getprocaddr
+Subtask 4.2: Run Tests
+# Execute the test program
+make test
+
+# Run with additional debugging
+LD_DEBUG=symbols ./test_getprocaddr
+Subtask 4.3: Verify Function Resolution
+Create a verification script:
+
+nano verify_functions.sh
+Add verification code:
+
+#!/bin/bash
+
+echo "=== Verifying Dynamic Library Functions ==="
+
+# Check available symbols in math library
+echo "Math library symbols:"
+nm -D /lib/x86_64-linux-gnu/libm.so.6 | grep -E "(sqrt|sin|cos)" | head -5
+
+echo -e "\nLibC symbols:"
+nm -D /lib/x86_64-linux-gnu/libc.so.6 | grep -E "(malloc|strlen|printf)" | head -5
+
+echo -e "\nRunning our custom implementation:"
+./test_getprocaddr
+Make it executable and run:
+
+chmod +x verify_functions.sh
+./verify_functions.sh
+Task 5: Advanced Implementation Features
+Subtask 5.1: Add Error Handling and Logging
+Create an enhanced version:
+
+nano advanced_getprocaddr.c
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dlfcn.h>
+#include <errno.h>
+#include <time.h>
+
+typedef enum {
+    LOG_INFO,
+    LOG_WARNING,
+    LOG_ERROR
+} log_level_t;
+
+void log_message(log_level_t level, const char* format, ...) {
+    time_t now;
+    time(&now);
+    char* time_str = ctime(&now);
+    time_str[strlen(time_str) - 1] = '\0'; // Remove newline
+    
+    const char* level_str[] = {"INFO", "WARN", "ERROR"};
+    printf("[%s] %s: ", time_str, level_str[level]);
+    
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+    printf("\n");
+}
+
+void* safe_get_proc_address(void* handle, const char* proc_name) {
+    if (!handle) {
+        log_message(LOG_ERROR, "Invalid module handle");
+        return NULL;
+    }
+    
+    if (!proc_name || strlen(proc_name) == 0) {
+        log_message(LOG_ERROR, "Invalid procedure name");
+        return NULL;
+    }
+    
+    // Clear any previous errors
+    dlerror();
+    
+    void* symbol = dlsym(handle, proc_name);
+    char* error = dlerror();
+    
+    if (error) {
+        log_message(LOG_ERROR, "Symbol resolution failed: %s", error);
+        return NULL;
+    }
+    
+    if (!symbol) {
+        log_message(LOG_WARNING, "Symbol '%s' resolved to NULL", proc_name);
+        return NULL;
+    }
+    
+    log_message(LOG_INFO, "Successfully resolved '%s' at %p", proc_name, symbol);
+    return symbol;
+}
+
+int main() {
+    printf("Advanced GetProcAddress with Error Handling\n");
+    printf("===========================================\n");
+    
+    void* handle = dlopen("libm.so.6", RTLD_LAZY);
+    if (!handle) {
+        log_message(LOG_ERROR, "Failed to load library: %s", dlerror());
+        return 1;
+    }
+    
+    // Test valid function
+    void* sqrt_func = safe_get_proc_address(handle, "sqrt");
+    
+    // Test invalid function
+    void* invalid_func = safe_get_proc_address(handle, "nonexistent_function");
+    
+    // Test NULL parameters
+    void* null_test = safe_get_proc_address(NULL, "sqrt");
+    void* empty_test = safe_get_proc_address(handle, "");
+    
+    dlclose(handle);
+    return 0;
+}
+Subtask 5.2: Compile and Test Advanced Version
+# Compile advanced version
+gcc -o advanced_test advanced_getprocaddr.c -ldl
+
+# Run advanced tests
+./advanced_test
+Verification and Testing
+Final Verification Steps
+# Check if all files are created
+ls -la ~/getprocaddr_lab/
+
+# Verify the main program works
+./test_getprocaddr
+
+# Check for memory leaks (optional)
+sudo apt install -y valgrind
+valgrind --leak-check=full ./test_getprocaddr
+Troubleshooting
+Common Issues:
+
+Library not found: Ensure library paths are correct using ldconfig -p | grep libname
+Symbol not found: Verify symbol exists using nm -D /path/to/library.so | grep symbol
+Compilation errors: Check that all required headers are installed with apt install libc6-dev
+Conclusion
+You have successfully implemented a custom GetProcAddress function in C that mimics Windows API functionality on Linux. This lab demonstrated:
+
+Dynamic library loading and symbol resolution
+Cross-platform function pointer management
+ELF file structure understanding
+Error handling in system-level programming
+This knowledge is essential for reverse engineering, malware analysis, and system programming where dynamic function resolution is required. The techniques learned here form the foundation for understanding how operating systems load and execute code dynamically.

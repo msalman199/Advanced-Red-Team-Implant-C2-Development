@@ -1,0 +1,149 @@
+Write First C Program to Call Windows APIs
+Objectives
+By completing this lab, you will:
+
+Write a C program that calls Windows API functions on Linux using Wine
+Compile Windows-compatible C code using MinGW cross-compiler
+Execute Windows programs in a Linux environment
+Understand the basics of Windows API programming
+Prerequisites
+Basic knowledge of C programming language
+Familiarity with Linux command line
+Understanding of compilation process
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided machine is bare metal with no pre-installed tools, so you will install all required software during the lab.
+
+Task 1: Write C Code to Call the MessageBox API
+Step 1.1: Install Required Tools
+Install Wine and MinGW cross-compiler:
+
+sudo apt update
+sudo apt install -y wine64 gcc-mingw-w64 nano
+Configure Wine:
+
+winecfg
+Select Windows 10 from the dropdown and click OK.
+
+Step 1.2: Create the C Program
+Create a new directory and navigate to it:
+
+mkdir windows-api-lab
+cd windows-api-lab
+Create the C source file:
+
+nano messagebox.c
+Add the following code:
+
+#include <windows.h>
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
+                   LPSTR lpCmdLine, int nCmdShow) {
+    
+    MessageBox(NULL, 
+               "Hello from Windows API!\nThis program runs on Linux using Wine.", 
+               "My First Windows API Program", 
+               MB_OK | MB_ICONINFORMATION);
+    
+    MessageBox(NULL, 
+               "Do you want to see another message?", 
+               "Question", 
+               MB_YESNO | MB_ICONQUESTION);
+    
+    return 0;
+}
+Save and exit (Ctrl+X, then Y, then Enter).
+
+Step 1.3: Verify the Code
+Display the created file to confirm:
+
+cat messagebox.c
+Task 2: Compile and Execute the Program
+Step 2.1: Compile the Program
+Compile using MinGW cross-compiler:
+
+x86_64-w64-mingw32-gcc -o messagebox.exe messagebox.c -luser32 -lgdi32
+Verify the executable was created:
+
+ls -la messagebox.exe
+Step 2.2: Execute the Program
+Run the Windows executable using Wine:
+
+wine messagebox.exe
+You should see two message boxes appear:
+
+An information dialog with "Hello from Windows API!"
+A question dialog asking if you want to see another message
+Step 2.3: Create an Advanced Example
+Create a more complex Windows API program:
+
+nano advanced_api.c
+Add the following code:
+
+#include <windows.h>
+#include <stdio.h>
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
+                   LPSTR lpCmdLine, int nCmdShow) {
+    
+    // Get system information
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    
+    char buffer[256];
+    sprintf(buffer, "System Information:\n\nProcessor Architecture: %d\nNumber of Processors: %d\nPage Size: %d bytes", 
+            sysInfo.wProcessorArchitecture, 
+            sysInfo.dwNumberOfProcessors, 
+            sysInfo.dwPageSize);
+    
+    MessageBox(NULL, buffer, "System Info via Windows API", MB_OK | MB_ICONINFORMATION);
+    
+    // Get Windows directory
+    char winDir[MAX_PATH];
+    GetWindowsDirectory(winDir, MAX_PATH);
+    
+    sprintf(buffer, "Windows Directory: %s", winDir);
+    MessageBox(NULL, buffer, "Windows Directory", MB_OK | MB_ICONINFORMATION);
+    
+    return 0;
+}
+Save and exit.
+
+Step 2.4: Compile and Run Advanced Example
+Compile the advanced program:
+
+x86_64-w64-mingw32-gcc -o advanced_api.exe advanced_api.c -luser32 -lkernel32
+Execute the program:
+
+wine advanced_api.exe
+Step 2.5: Verify Installation and Execution
+Check Wine processes:
+
+ps aux | grep wine
+List created executables:
+
+ls -la *.exe
+Troubleshooting
+If Wine fails to start:
+
+export DISPLAY=:0
+wine --version
+If compilation fails:
+
+x86_64-w64-mingw32-gcc --version
+dpkg -l | grep mingw
+If message boxes don't appear:
+
+winecfg
+# Ensure Graphics tab shows proper display settings
+Verification
+Confirm successful completion by running:
+
+echo "Lab completed successfully!"
+echo "Created executables:"
+ls -la *.exe
+echo "Wine version:"
+wine --version
+Conclusion
+You have successfully created and executed C programs that call Windows APIs on a Linux system. This lab demonstrated cross-platform development using MinGW for compilation and Wine for execution. You learned to use essential Windows APIs like MessageBox, GetSystemInfo, and GetWindowsDirectory. These skills are valuable for developing Windows applications in cross-platform environments and understanding how Windows APIs function at a low level.
+
+The ability to develop Windows programs on Linux systems is crucial for developers working in mixed environments and provides flexibility in development workflows without requiring Windows-specific hardware or virtual machines.

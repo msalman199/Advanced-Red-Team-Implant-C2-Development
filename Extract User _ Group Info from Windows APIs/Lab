@@ -1,0 +1,544 @@
+Extract User & Group Info from Windows APIs
+Learning Objectives
+By completing this lab, you will:
+
+Extract user and group information from Windows systems using open-source tools on Linux
+Enumerate Windows users and groups through SMB/CIFS protocols
+Display and analyze collected Windows authentication data
+Understand Windows security identifier (SID) structures
+Prerequisites
+Basic Linux command-line knowledge
+Understanding of Windows user/group concepts
+Familiarity with network protocols (SMB/CIFS)
+Knowledge of Python scripting basics
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided machine is bare metal with no pre-installed tools, so you will install all required tools during the lab.
+
+Task 1: Install Required Tools and Dependencies
+Subtask 1.1: Update System and Install Base Tools
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3 python3-pip smbclient cifs-utils rpcclient enum4linux-ng
+Subtask 1.2: Install Python Libraries
+pip3 install impacket-scripts smbprotocol pysmb
+Subtask 1.3: Verify Installation
+which rpcclient smbclient enum4linux-ng
+python3 -c "import smbprotocol; print('SMB libraries installed successfully')"
+Task 2: Set Up Target Windows Environment Simulation
+Subtask 2.1: Create Mock Windows Data Structure
+mkdir -p ~/lab8_windows_api
+cd ~/lab8_windows_api
+Subtask 2.2: Create Python Script for Windows API Simulation
+cat > windows_api_extractor.py << 'EOF'
+#!/usr/bin/env python3
+import subprocess
+import json
+import re
+from datetime import datetime
+
+class WindowsAPIExtractor:
+    def __init__(self, target_ip="127.0.0.1"):
+        self.target_ip = target_ip
+        self.users = []
+        self.groups = []
+        
+    def extract_users_rpcclient(self, target_ip, username="", password=""):
+        """Extract users using rpcclient"""
+        try:
+            cmd = f"rpcclient -U '{username}%{password}' {target_ip} -c 'enumdomusers'"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            
+            users = []
+            for line in result.stdout.split('\n'):
+                if 'user:' in line:
+                    match = re.search(r'user:\[(.*?)\].*rid:\[(.*?)\]', line)
+                    if match:
+                        users.append({
+                            'username': match.group(1),
+                            'rid': match.group(2),
+                            'sid': f"S-1-5-21-{match.group(2)}"
+                        })
+            return users
+        except Exception as e:
+            print(f"Error extracting users: {e}")
+            return []
+    
+    def extract_groups_rpcclient(self, target_ip, username="", password=""):
+        """Extract groups using rpcclient"""
+        try:
+            cmd = f"rpcclient -U '{username}%{password}' {target_ip} -c 'enumdomgroups'"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            
+            groups = []
+            for line in result.stdout.split('\n'):
+                if 'group:' in line:
+                    match = re.search(r'group:\[(.*?)\].*rid:\[(.*?)\]', line)
+                    if match:
+                        groups.append({
+                            'groupname': match.group(1),
+                            'rid': match.group(2),
+                            'sid': f"S-1-5-21-{match.group(2)}"
+                        })
+            return groups
+        except Exception as e:
+            print(f"Error extracting groups: {e}")
+            return []
+    
+    def simulate_windows_data(self):
+        """Simulate Windows user and group data for demonstration"""
+        self.users = [
+            {'username': 'Administrator', 'rid': '500', 'sid': 'S-1-5-21-500', 'status': 'Active'},
+            {'username': 'Guest', 'rid': '501', 'sid': 'S-1-5-21-501', 'status': 'Disabled'},
+            {'username': 'john.doe', 'rid': '1001', 'sid': 'S-1-5-21-1001', 'status': 'Active'},
+            {'username': 'jane.smith', 'rid': '1002', 'sid': 'S-1-5-21-1002', 'status': 'Active'},
+            {'username': 'service_account', 'rid': '1003', 'sid': 'S-1-5-21-1003', 'status': 'Active'}
+        ]
+        
+        self.groups = [
+            {'groupname': 'Administrators', 'rid': '544', 'sid': 'S-1-5-32-544', 'type': 'Local'},
+            {'groupname': 'Users', 'rid': '545', 'sid': 'S-1-5-32-545', 'type': 'Local'},
+            {'groupname': 'Domain Admins', 'rid': '512', 'sid': 'S-1-5-21-512', 'type': 'Domain'},
+            {'groupname': 'Domain Users', 'rid': '513', 'sid': 'S-1-5-21-513', 'type': 'Domain'},
+            {'groupname': 'IT Support', 'rid': '1100', 'sid': 'S-1-5-21-1100', 'type': 'Custom'}
+        ]
+    
+    def display_users(self):
+        """Display extracted user information"""
+        print("\n" + "="*60)
+        print("WINDOWS USER ENUMERATION RESULTS")
+        print("="*60)
+        print(f"{'Username':<20} {'RID':<8} {'SID':<20} {'Status':<10}")
+        print("-"*60)
+        
+        for user in self.users:
+            print(f"{user['username']:<20} {user['rid']:<8} {user['sid']:<20} {user.get('status', 'Unknown'):<10}")
+        
+        print(f"\nTotal Users Found: {len(self.users)}")
+    
+    def display_groups(self):
+        """Display extracted group information"""
+        print("\n" + "="*60)
+        print("WINDOWS GROUP ENUMERATION RESULTS")
+        print("="*60)
+        print(f"{'Group Name':<20} {'RID':<8} {'SID':<20} {'Type':<10}")
+        print("-"*60)
+        
+        for group in self.groups:
+            print(f"{group['groupname']:<20} {group['rid']:<8} {group['sid']:<20} {group.get('type', 'Unknown'):<10}")
+        
+        print(f"\nTotal Groups Found: {len(self.groups)}")
+    
+    def export_to_json(self, filename="windows_enumeration.json"):
+        """Export results to JSON file"""
+        data = {
+            'timestamp': datetime.now().isoformat(),
+            'target': self.target_ip,
+            'users': self.users,
+            'groups': self.groups,
+            'summary': {
+                'total_users': len(self.users),
+                'total_groups': len(self.groups)
+            }
+        }
+        
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        print(f"\nResults exported to: {filename}")
+    
+    def analyze_security_risks(self):
+        """Analyze potential security risks"""
+        print("\n" + "="*60)
+        print("SECURITY ANALYSIS")
+        print("="*60)
+        
+        # Check for default accounts
+        default_accounts = [user for user in self.users if user['username'] in ['Administrator', 'Guest']]
+        if default_accounts:
+            print("⚠️  Default accounts found:")
+            for account in default_accounts:
+                print(f"   - {account['username']} (Status: {account.get('status', 'Unknown')})")
+        
+        # Check for service accounts
+        service_accounts = [user for user in self.users if 'service' in user['username'].lower()]
+        if service_accounts:
+            print("\n🔧 Service accounts identified:")
+            for account in service_accounts:
+                print(f"   - {account['username']}")
+        
+        # Check for privileged groups
+        privileged_groups = [group for group in self.groups if 'admin' in group['groupname'].lower()]
+        if privileged_groups:
+            print("\n🔐 Privileged groups found:")
+            for group in privileged_groups:
+                print(f"   - {group['groupname']} ({group.get('type', 'Unknown')})")
+
+if __name__ == "__main__":
+    extractor = WindowsAPIExtractor()
+    
+    print("Windows API User & Group Extractor")
+    print("==================================")
+    
+    # Simulate Windows data extraction
+    extractor.simulate_windows_data()
+    
+    # Display results
+    extractor.display_users()
+    extractor.display_groups()
+    
+    # Security analysis
+    extractor.analyze_security_risks()
+    
+    # Export results
+    extractor.export_to_json()
+EOF
+Subtask 2.3: Make Script Executable
+chmod +x windows_api_extractor.py
+Task 3: Create Advanced Enumeration Tools
+Subtask 3.1: Create SMB Enumeration Script
+cat > smb_enum_tool.py << 'EOF'
+#!/usr/bin/env python3
+import subprocess
+import sys
+import argparse
+
+class SMBEnumerator:
+    def __init__(self, target, username="", password=""):
+        self.target = target
+        self.username = username
+        self.password = password
+    
+    def enum_users_smbclient(self):
+        """Enumerate users using smbclient"""
+        print("\n[+] Enumerating users with smbclient...")
+        try:
+            if self.username and self.password:
+                cmd = f"smbclient -L {self.target} -U {self.username}%{self.password}"
+            else:
+                cmd = f"smbclient -L {self.target} -N"
+            
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            print("SMB Shares:")
+            print(result.stdout)
+            
+        except Exception as e:
+            print(f"Error: {e}")
+    
+    def enum_with_rpcclient(self):
+        """Enumerate using rpcclient"""
+        print("\n[+] Enumerating with rpcclient...")
+        commands = [
+            "srvinfo",
+            "enumdomusers",
+            "enumdomgroups",
+            "querydominfo"
+        ]
+        
+        for cmd in commands:
+            print(f"\n--- Executing: {cmd} ---")
+            try:
+                if self.username and self.password:
+                    rpc_cmd = f"rpcclient -U '{self.username}%{self.password}' {self.target} -c '{cmd}'"
+                else:
+                    rpc_cmd = f"rpcclient -U '' {self.target} -c '{cmd}'"
+                
+                result = subprocess.run(rpc_cmd, shell=True, capture_output=True, text=True)
+                if result.stdout:
+                    print(result.stdout)
+                if result.stderr:
+                    print(f"Error: {result.stderr}")
+                    
+            except Exception as e:
+                print(f"Error executing {cmd}: {e}")
+    
+    def enum_with_enum4linux(self):
+        """Enumerate using enum4linux-ng"""
+        print("\n[+] Enumerating with enum4linux-ng...")
+        try:
+            if self.username and self.password:
+                cmd = f"enum4linux-ng -u {self.username} -p {self.password} {self.target}"
+            else:
+                cmd = f"enum4linux-ng {self.target}"
+            
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            print(result.stdout)
+            
+        except Exception as e:
+            print(f"Error: {e}")
+
+def main():
+    parser = argparse.ArgumentParser(description="SMB Enumeration Tool")
+    parser.add_argument("target", help="Target IP address")
+    parser.add_argument("-u", "--username", default="", help="Username")
+    parser.add_argument("-p", "--password", default="", help="Password")
+    
+    args = parser.parse_args()
+    
+    enumerator = SMBEnumerator(args.target, args.username, args.password)
+    
+    print(f"Starting enumeration of {args.target}")
+    print("="*50)
+    
+    enumerator.enum_users_smbclient()
+    enumerator.enum_with_rpcclient()
+    enumerator.enum_with_enum4linux()
+
+if __name__ == "__main__":
+    main()
+EOF
+Subtask 3.2: Make SMB Tool Executable
+chmod +x smb_enum_tool.py
+Task 4: Execute User and Group Enumeration
+Subtask 4.1: Run Main Extraction Script
+python3 windows_api_extractor.py
+Subtask 4.2: Test SMB Enumeration Against Localhost
+python3 smb_enum_tool.py 127.0.0.1
+Subtask 4.3: Create Comprehensive Report Generator
+cat > report_generator.py << 'EOF'
+#!/usr/bin/env python3
+import json
+import os
+from datetime import datetime
+
+class ReportGenerator:
+    def __init__(self, json_file="windows_enumeration.json"):
+        self.json_file = json_file
+        self.data = self.load_data()
+    
+    def load_data(self):
+        """Load enumeration data from JSON file"""
+        try:
+            with open(self.json_file, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"Error: {self.json_file} not found. Run the main extractor first.")
+            return None
+    
+    def generate_html_report(self):
+        """Generate HTML report"""
+        if not self.data:
+            return
+        
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Windows API Enumeration Report</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .header {{ background-color: #2c3e50; color: white; padding: 20px; }}
+        .section {{ margin: 20px 0; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+        .risk-high {{ color: #e74c3c; }}
+        .risk-medium {{ color: #f39c12; }}
+        .risk-low {{ color: #27ae60; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Windows API Enumeration Report</h1>
+        <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p>Target: {self.data.get('target', 'N/A')}</p>
+    </div>
+    
+    <div class="section">
+        <h2>Summary</h2>
+        <p>Total Users: {self.data['summary']['total_users']}</p>
+        <p>Total Groups: {self.data['summary']['total_groups']}</p>
+    </div>
+    
+    <div class="section">
+        <h2>Users</h2>
+        <table>
+            <tr><th>Username</th><th>RID</th><th>SID</th><th>Status</th></tr>
+"""
+        
+        for user in self.data['users']:
+            html_content += f"""
+            <tr>
+                <td>{user['username']}</td>
+                <td>{user['rid']}</td>
+                <td>{user['sid']}</td>
+                <td>{user.get('status', 'Unknown')}</td>
+            </tr>
+"""
+        
+        html_content += """
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>Groups</h2>
+        <table>
+            <tr><th>Group Name</th><th>RID</th><th>SID</th><th>Type</th></tr>
+"""
+        
+        for group in self.data['groups']:
+            html_content += f"""
+            <tr>
+                <td>{group['groupname']}</td>
+                <td>{group['rid']}</td>
+                <td>{group['sid']}</td>
+                <td>{group.get('type', 'Unknown')}</td>
+            </tr>
+"""
+        
+        html_content += """
+        </table>
+    </div>
+</body>
+</html>
+"""
+        
+        with open('enumeration_report.html', 'w') as f:
+            f.write(html_content)
+        
+        print("HTML report generated: enumeration_report.html")
+    
+    def generate_csv_export(self):
+        """Generate CSV exports"""
+        if not self.data:
+            return
+        
+        # Users CSV
+        with open('users_export.csv', 'w') as f:
+            f.write("Username,RID,SID,Status\n")
+            for user in self.data['users']:
+                f.write(f"{user['username']},{user['rid']},{user['sid']},{user.get('status', 'Unknown')}\n")
+        
+        # Groups CSV
+        with open('groups_export.csv', 'w') as f:
+            f.write("Group Name,RID,SID,Type\n")
+            for group in self.data['groups']:
+                f.write(f"{group['groupname']},{group['rid']},{group['sid']},{group.get('type', 'Unknown')}\n")
+        
+        print("CSV exports generated: users_export.csv, groups_export.csv")
+
+if __name__ == "__main__":
+    generator = ReportGenerator()
+    generator.generate_html_report()
+    generator.generate_csv_export()
+EOF
+Subtask 4.4: Generate Reports
+chmod +x report_generator.py
+python3 report_generator.py
+Task 5: Display and Analyze Collected Data
+Subtask 5.1: View Generated Files
+ls -la *.json *.csv *.html
+Subtask 5.2: Display JSON Data
+cat windows_enumeration.json | python3 -m json.tool
+Subtask 5.3: View CSV Data
+echo "=== USERS ==="
+cat users_export.csv
+echo -e "\n=== GROUPS ==="
+cat groups_export.csv
+Subtask 5.4: Create Final Analysis Script
+cat > final_analysis.py << 'EOF'
+#!/usr/bin/env python3
+import json
+import subprocess
+
+def analyze_enumeration_results():
+    """Perform final analysis of enumeration results"""
+    
+    print("="*60)
+    print("FINAL WINDOWS API ENUMERATION ANALYSIS")
+    print("="*60)
+    
+    # Load and display data
+    try:
+        with open('windows_enumeration.json', 'r') as f:
+            data = json.load(f)
+        
+        print(f"\n📊 ENUMERATION SUMMARY")
+        print(f"Target System: {data.get('target', 'N/A')}")
+        print(f"Scan Time: {data.get('timestamp', 'N/A')}")
+        print(f"Users Discovered: {len(data['users'])}")
+        print(f"Groups Discovered: {len(data['groups'])}")
+        
+        print(f"\n🔍 KEY FINDINGS")
+        
+        # Analyze user accounts
+        admin_users = [u for u in data['users'] if 'admin' in u['username'].lower()]
+        service_users = [u for u in data['users'] if 'service' in u['username'].lower()]
+        default_users = [u for u in data['users'] if u['username'] in ['Administrator', 'Guest']]
+        
+        if admin_users:
+            print(f"Administrative Users: {len(admin_users)}")
+            for user in admin_users:
+                print(f"  - {user['username']} (RID: {user['rid']})")
+        
+        if service_users:
+            print(f"Service Accounts: {len(service_users)}")
+            for user in service_users:
+                print(f"  - {user['username']} (RID: {user['rid']})")
+        
+        if default_users:
+            print(f"Default Accounts: {len(default_users)}")
+            for user in default_users:
+                print(f"  - {user['username']} (Status: {user.get('status', 'Unknown')})")
+        
+        # Analyze groups
+        admin_groups = [g for g in data['groups'] if 'admin' in g['groupname'].lower()]
+        domain_groups = [g for g in data['groups'] if g.get('type') == 'Domain']
+        
+        if admin_groups:
+            print(f"Administrative Groups: {len(admin_groups)}")
+            for group in admin_groups:
+                print(f"  - {group['groupname']} (Type: {group.get('type', 'Unknown')})")
+        
+        if domain_groups:
+            print(f"Domain Groups: {len(domain_groups)}")
+        
+        print(f"\n📋 RECOMMENDATIONS")
+        print("1. Review administrative account usage")
+        print("2. Audit service account permissions")
+        print("3. Disable unnecessary default accounts")
+        print("4. Monitor privileged group memberships")
+        print("5. Implement least privilege principles")
+        
+        print(f"\n📁 Generated Files:")
+        files = ['windows_enumeration.json', 'users_export.csv', 'groups_export.csv', 'enumeration_report.html']
+        for file in files:
+            try:
+                size = subprocess.check_output(['stat', '-c', '%s', file]).decode().strip()
+                print(f"  - {file} ({size} bytes)")
+            except:
+                print(f"  - {file} (not found)")
+        
+    except FileNotFoundError:
+        print("Error: Enumeration data not found. Run the main extractor first.")
+    except Exception as e:
+        print(f"Error analyzing results: {e}")
+
+if __name__ == "__main__":
+    analyze_enumeration_results()
+EOF
+Subtask 5.5: Run Final Analysis
+chmod +x final_analysis.py
+python3 final_analysis.py
+Verification and Testing
+Verify All Components
+echo "=== Lab 8 Verification ==="
+echo "Files created:"
+ls -la *.py *.json *.csv *.html 2>/dev/null || echo "Some files missing"
+
+echo -e "\nTesting main extractor:"
+python3 -c "import windows_api_extractor; print('✓ Main extractor working')"
+
+echo -e "\nTesting report generator:"
+python3 -c "import report_generator; print('✓ Report generator working')"
+
+echo -e "\nVerifying JSON data:"
+python3 -c "import json; data=json.load(open('windows_enumeration.json')); print(f'✓ JSON valid: {len(data[\"users\"])} users, {len(data[\"groups\"])} groups')"
+Conclusion
+You have successfully completed Lab 8: Extract User & Group Info from Windows APIs. In this lab, you:
+
+Installed and configured open-source tools for Windows enumeration on Linux
+Created Python scripts to simulate and extract Windows user and group information
+Implemented multiple enumeration techniques using rpcclient, smbclient, and enum4linux-ng
+Generated comprehensive reports in JSON, CSV, and HTML formats
+Analyzed security implications of discovered accounts and groups
+Developed practical skills for Windows security assessment using Linux-based tools
+This lab demonstrates how security professionals can use open-source tools on Linux systems to gather intelligence about Windows environments, which is essential for penetration testing, security auditing, and incident response activities. The techniques learned here form the foundation for advanced Windows security assessment methodologies.

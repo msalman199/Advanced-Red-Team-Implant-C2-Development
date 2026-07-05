@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-windows",
+            "type": "shell",
+            "command": "x86_64-w64-mingw32-gcc",
+            "args": [
+                "-o",
+                "build/app.exe",
+                "src/*.c",
+                "-luser32",
+                "-lgdi32",
+                "-lkernel32"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ]
+}

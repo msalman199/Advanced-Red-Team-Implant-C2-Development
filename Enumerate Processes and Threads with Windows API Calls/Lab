@@ -1,0 +1,282 @@
+ Enumerate Processes and Threads with Windows API Calls
+Learning Objectives
+By completing this lab, you will:
+
+Understand Windows API process enumeration concepts on Linux using Wine
+Develop C programs that enumerate active processes and threads
+Extract and display process/thread information using Windows API calls
+Compile and execute Windows API programs in a Linux environment
+Prerequisites
+Basic knowledge of C programming
+Understanding of processes and threads concepts
+Familiarity with Linux command line operations
+Basic understanding of compilation processes
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided machine is bare metal with no pre-installed tools, so you will install all required components during the lab.
+
+Task 1: Environment Setup and Tool Installation
+Subtask 1.1: Install Required Development Tools
+Update the system and install essential development tools:
+
+sudo apt update
+sudo apt install -y build-essential gcc mingw-w64 wine64 wine32
+Subtask 1.2: Configure Wine Environment
+Initialize Wine and configure it for Windows API development:
+
+winecfg
+Select Windows 10 as the Windows version and click OK.
+
+Subtask 1.3: Install Windows SDK Headers
+Download and set up Windows API headers:
+
+sudo apt install -y mingw-w64-tools
+Task 2: Create Process Enumeration Program
+Subtask 2.1: Create the Main Program File
+Create a new C source file for process enumeration:
+
+mkdir -p ~/lab3_process_enum
+cd ~/lab3_process_enum
+nano process_enum.c
+Subtask 2.2: Implement Process Enumeration Code
+Add the following code to process_enum.c:
+
+#include <windows.h>
+#include <tlhelp32.h>
+#include <stdio.h>
+#include <tchar.h>
+
+void EnumerateProcesses() {
+    HANDLE hProcessSnap;
+    PROCESSENTRY32 pe32;
+    
+    printf("=== ACTIVE PROCESSES ===\n");
+    printf("%-8s %-30s %-8s %-8s\n", "PID", "Process Name", "Threads", "Parent PID");
+    printf("================================================================\n");
+    
+    hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hProcessSnap == INVALID_HANDLE_VALUE) {
+        printf("CreateToolhelp32Snapshot failed\n");
+        return;
+    }
+    
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+    
+    if (!Process32First(hProcessSnap, &pe32)) {
+        printf("Process32First failed\n");
+        CloseHandle(hProcessSnap);
+        return;
+    }
+    
+    do {
+        printf("%-8lu %-30s %-8lu %-8lu\n", 
+               pe32.th32ProcessID, 
+               pe32.szExeFile, 
+               pe32.cntThreads, 
+               pe32.th32ParentProcessID);
+    } while (Process32Next(hProcessSnap, &pe32));
+    
+    CloseHandle(hProcessSnap);
+}
+
+void EnumerateThreads(DWORD processID) {
+    HANDLE hThreadSnap;
+    THREADENTRY32 te32;
+    
+    printf("\n=== THREADS FOR PROCESS ID: %lu ===\n", processID);
+    printf("%-8s %-8s %-12s %-8s\n", "Thread ID", "Process ID", "Base Priority", "Delta Priority");
+    printf("================================================\n");
+    
+    hThreadSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (hThreadSnap == INVALID_HANDLE_VALUE) {
+        printf("CreateToolhelp32Snapshot failed for threads\n");
+        return;
+    }
+    
+    te32.dwSize = sizeof(THREADENTRY32);
+    
+    if (!Thread32First(hThreadSnap, &te32)) {
+        printf("Thread32First failed\n");
+        CloseHandle(hThreadSnap);
+        return;
+    }
+    
+    do {
+        if (te32.th32OwnerProcessID == processID) {
+            printf("%-8lu %-8lu %-12ld %-8ld\n", 
+                   te32.th32ThreadID, 
+                   te32.th32OwnerProcessID, 
+                   te32.tpBasePri, 
+                   te32.tpDeltaPri);
+        }
+    } while (Thread32Next(hThreadSnap, &te32));
+    
+    CloseHandle(hThreadSnap);
+}
+
+int main() {
+    printf("Windows API Process and Thread Enumeration\n");
+    printf("==========================================\n\n");
+    
+    EnumerateProcesses();
+    
+    DWORD targetPID;
+    printf("\nEnter a Process ID to view its threads (0 to skip): ");
+    scanf("%lu", &targetPID);
+    
+    if (targetPID > 0) {
+        EnumerateThreads(targetPID);
+    }
+    
+    printf("\nEnumeration completed successfully!\n");
+    return 0;
+}
+Save and exit the editor (Ctrl+X, then Y, then Enter).
+
+Subtask 2.3: Create Compilation Script
+Create a build script for easy compilation:
+
+nano build.sh
+Add the following content:
+
+#!/bin/bash
+echo "Compiling Windows API Process Enumeration Program..."
+x86_64-w64-mingw32-gcc -o process_enum.exe process_enum.c -lkernel32 -static
+echo "Compilation completed!"
+Make the script executable:
+
+chmod +x build.sh
+Task 3: Compile and Execute the Program
+Subtask 3.1: Compile the Program
+Run the build script:
+
+./build.sh
+Verify the executable was created:
+
+ls -la process_enum.exe
+Subtask 3.2: Execute the Program
+Run the program using Wine:
+
+wine process_enum.exe
+Subtask 3.3: Analyze the Output
+The program will display:
+
+Active Processes: List of running processes with PID, name, thread count, and parent PID
+Thread Details: Detailed thread information for a specific process
+When prompted, enter a Process ID from the list to view its threads, or enter 0 to skip.
+
+Task 4: Enhanced Process Information Program
+Subtask 4.1: Create Advanced Process Monitor
+Create an enhanced version with additional process information:
+
+nano advanced_process_enum.c
+Add the following code:
+
+#include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
+#include <stdio.h>
+
+void GetProcessMemoryInfo(DWORD processID) {
+    HANDLE hProcess;
+    PROCESS_MEMORY_COUNTERS pmc;
+    
+    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processID);
+    if (hProcess == NULL) {
+        printf("Could not open process %lu for memory information\n", processID);
+        return;
+    }
+    
+    if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {
+        printf("Memory Usage for Process ID %lu:\n", processID);
+        printf("  Working Set Size: %lu KB\n", pmc.WorkingSetSize / 1024);
+        printf("  Peak Working Set: %lu KB\n", pmc.PeakWorkingSetSize / 1024);
+        printf("  Page File Usage: %lu KB\n", pmc.PagefileUsage / 1024);
+    }
+    
+    CloseHandle(hProcess);
+}
+
+void DetailedProcessEnum() {
+    HANDLE hProcessSnap;
+    PROCESSENTRY32 pe32;
+    int processCount = 0;
+    
+    printf("=== DETAILED PROCESS INFORMATION ===\n");
+    
+    hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hProcessSnap == INVALID_HANDLE_VALUE) {
+        printf("CreateToolhelp32Snapshot failed\n");
+        return;
+    }
+    
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+    
+    if (Process32First(hProcessSnap, &pe32)) {
+        do {
+            processCount++;
+            printf("\n--- Process #%d ---\n", processCount);
+            printf("Process ID: %lu\n", pe32.th32ProcessID);
+            printf("Process Name: %s\n", pe32.szExeFile);
+            printf("Thread Count: %lu\n", pe32.cntThreads);
+            printf("Parent Process ID: %lu\n", pe32.th32ParentProcessID);
+            
+            GetProcessMemoryInfo(pe32.th32ProcessID);
+            
+        } while (Process32Next(hProcessSnap, &pe32));
+    }
+    
+    printf("\nTotal Processes Found: %d\n", processCount);
+    CloseHandle(hProcessSnap);
+}
+
+int main() {
+    printf("Advanced Windows API Process Monitor\n");
+    printf("===================================\n");
+    
+    DetailedProcessEnum();
+    
+    return 0;
+}
+Subtask 4.2: Compile Advanced Version
+Create build script for the advanced version:
+
+nano build_advanced.sh
+Add the following content:
+
+#!/bin/bash
+echo "Compiling Advanced Process Monitor..."
+x86_64-w64-mingw32-gcc -o advanced_process_enum.exe advanced_process_enum.c -lkernel32 -lpsapi -static
+echo "Advanced compilation completed!"
+Make executable and run:
+
+chmod +x build_advanced.sh
+./build_advanced.sh
+Subtask 4.3: Execute Advanced Program
+Run the advanced process monitor:
+
+wine advanced_process_enum.exe
+Task 5: Verification and Testing
+Subtask 5.1: Compare Output Results
+Run both programs and compare their outputs:
+
+echo "=== Basic Process Enumeration ==="
+wine process_enum.exe
+
+echo -e "\n=== Advanced Process Enumeration ==="
+wine advanced_process_enum.exe
+Subtask 5.2: Verify API Functionality
+Check that the programs successfully:
+
+Enumerate active processes using CreateToolhelp32Snapshot
+Extract process information including PID, name, and thread count
+Display thread details for specific processes
+Handle API errors gracefully
+Troubleshooting Tips
+Compilation Errors: Ensure mingw-w64 is properly installed and all required libraries are linked.
+
+Wine Execution Issues: Run winecfg to verify Windows version is set to Windows 10.
+
+Missing API Functions: Verify that all required Windows API libraries are properly linked during compilation.
+
+Conclusion
+You have successfully created and executed C programs that enumerate processes and threads using Windows API calls on a Linux system. This lab demonstrated how to use CreateToolhelp32Snapshot, Process32First/Next, and Thread32First/Next functions to gather system information. These skills are essential for system monitoring, security analysis, and process management applications. The techniques learned here form the foundation for more advanced system programming and malware analysis tasks.

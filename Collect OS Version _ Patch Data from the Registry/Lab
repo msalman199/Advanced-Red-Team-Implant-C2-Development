@@ -1,0 +1,441 @@
+Collect OS Version & Patch Data from the Registry
+Learning Objectives
+By completing this lab, you will:
+
+Understand Windows Registry structure and access methods
+Write C programs using Windows Registry APIs
+Extract OS version and patch information programmatically
+Simulate Windows Registry operations on Linux using cross-platform tools
+Prerequisites
+Basic C programming knowledge
+Understanding of operating system concepts
+Familiarity with Linux command line
+Knowledge of compilation processes
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided machine is bare metal with no pre-installed tools, so you will install all required components during the lab.
+
+Task 1: Environment Setup and Tool Installation
+Subtask 1.1: Install Development Tools
+Update the system and install essential development tools:
+
+sudo apt update
+sudo apt install -y gcc make git wget curl
+sudo apt install -y mingw-w64 wine64
+Subtask 1.2: Install Wine for Windows API Simulation
+Configure Wine to simulate Windows environment:
+
+winecfg
+Select Windows 10 as the Windows version and click OK.
+
+Subtask 1.3: Create Project Directory
+mkdir ~/registry_lab
+cd ~/registry_lab
+Task 2: Create Registry Access Program
+Subtask 2.1: Write the Main Registry Reader
+Create the main C program file:
+
+nano registry_reader.c
+Add the following code:
+
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void printOSVersion() {
+    HKEY hKey;
+    DWORD dwType = REG_SZ;
+    DWORD dwSize = 256;
+    char szValue[256];
+    
+    printf("=== Operating System Information ===\n");
+    
+    // Open registry key for OS version
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+                     "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 
+                     0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        
+        // Get Product Name
+        dwSize = 256;
+        if (RegQueryValueEx(hKey, "ProductName", NULL, &dwType, 
+                           (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
+            printf("Product Name: %s\n", szValue);
+        }
+        
+        // Get Version
+        dwSize = 256;
+        if (RegQueryValueEx(hKey, "CurrentVersion", NULL, &dwType, 
+                           (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
+            printf("Version: %s\n", szValue);
+        }
+        
+        // Get Build Number
+        dwSize = 256;
+        if (RegQueryValueEx(hKey, "CurrentBuild", NULL, &dwType, 
+                           (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
+            printf("Build: %s\n", szValue);
+        }
+        
+        // Get Release ID
+        dwSize = 256;
+        if (RegQueryValueEx(hKey, "ReleaseId", NULL, &dwType, 
+                           (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
+            printf("Release ID: %s\n", szValue);
+        }
+        
+        RegCloseKey(hKey);
+    } else {
+        printf("Failed to open OS version registry key\n");
+    }
+}
+
+void printInstalledUpdates() {
+    HKEY hKey;
+    DWORD dwIndex = 0;
+    char szKeyName[256];
+    DWORD dwKeyNameSize = 256;
+    FILETIME ftLastWriteTime;
+    
+    printf("\n=== Installed Updates ===\n");
+    
+    // Open registry key for installed updates
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+                     "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", 
+                     0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        
+        printf("Enumerating installed updates...\n");
+        
+        // Enumerate subkeys (installed programs/updates)
+        while (RegEnumKeyEx(hKey, dwIndex, szKeyName, &dwKeyNameSize, 
+                           NULL, NULL, NULL, &ftLastWriteTime) == ERROR_SUCCESS) {
+            
+            // Check if it's a Windows Update (KB prefix)
+            if (strncmp(szKeyName, "KB", 2) == 0) {
+                printf("Update: %s\n", szKeyName);
+            }
+            
+            dwIndex++;
+            dwKeyNameSize = 256;
+        }
+        
+        RegCloseKey(hKey);
+    } else {
+        printf("Failed to open updates registry key\n");
+    }
+}
+
+void printSystemInfo() {
+    HKEY hKey;
+    DWORD dwType = REG_SZ;
+    DWORD dwSize = 256;
+    char szValue[256];
+    
+    printf("\n=== System Information ===\n");
+    
+    // Open registry key for system info
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+                     "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 
+                     0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        
+        // Get Processor Name
+        dwSize = 256;
+        if (RegQueryValueEx(hKey, "ProcessorNameString", NULL, &dwType, 
+                           (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
+            printf("Processor: %s\n", szValue);
+        }
+        
+        RegCloseKey(hKey);
+    }
+    
+    // Get Computer Name
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+                     "SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ComputerName", 
+                     0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        
+        dwSize = 256;
+        if (RegQueryValueEx(hKey, "ComputerName", NULL, &dwType, 
+                           (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
+            printf("Computer Name: %s\n", szValue);
+        }
+        
+        RegCloseKey(hKey);
+    }
+}
+
+int main() {
+    printf("Windows Registry OS Version and Patch Data Collector\n");
+    printf("====================================================\n\n");
+    
+    printOSVersion();
+    printInstalledUpdates();
+    printSystemInfo();
+    
+    printf("\n=== Registry Data Collection Complete ===\n");
+    return 0;
+}
+Subtask 2.2: Create Linux Alternative Version
+Create a Linux-compatible version for demonstration:
+
+nano linux_system_info.c
+Add the following code:
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+void printLinuxOSInfo() {
+    FILE *fp;
+    char buffer[256];
+    
+    printf("=== Linux System Information ===\n");
+    
+    // Get OS Release Info
+    fp = fopen("/etc/os-release", "r");
+    if (fp != NULL) {
+        while (fgets(buffer, sizeof(buffer), fp)) {
+            if (strncmp(buffer, "PRETTY_NAME=", 12) == 0) {
+                printf("OS: %s", buffer + 13);
+            } else if (strncmp(buffer, "VERSION=", 8) == 0) {
+                printf("Version: %s", buffer + 9);
+            }
+        }
+        fclose(fp);
+    }
+    
+    // Get Kernel Version
+    fp = popen("uname -r", "r");
+    if (fp != NULL) {
+        if (fgets(buffer, sizeof(buffer), fp)) {
+            printf("Kernel: %s", buffer);
+        }
+        pclose(fp);
+    }
+}
+
+void printInstalledPackages() {
+    FILE *fp;
+    char buffer[256];
+    int count = 0;
+    
+    printf("\n=== Installed Packages (Sample) ===\n");
+    
+    // Get installed packages using dpkg
+    fp = popen("dpkg -l | grep '^ii' | head -10", "r");
+    if (fp != NULL) {
+        while (fgets(buffer, sizeof(buffer), fp) && count < 10) {
+            printf("Package: %s", buffer);
+            count++;
+        }
+        pclose(fp);
+    }
+}
+
+void printSystemSpecs() {
+    FILE *fp;
+    char buffer[256];
+    
+    printf("\n=== Hardware Information ===\n");
+    
+    // Get CPU info
+    fp = popen("grep 'model name' /proc/cpuinfo | head -1 | cut -d':' -f2", "r");
+    if (fp != NULL) {
+        if (fgets(buffer, sizeof(buffer), fp)) {
+            printf("CPU:%s", buffer);
+        }
+        pclose(fp);
+    }
+    
+    // Get Memory info
+    fp = popen("grep 'MemTotal' /proc/meminfo | awk '{print $2 \" \" $3}'", "r");
+    if (fp != NULL) {
+        if (fgets(buffer, sizeof(buffer), fp)) {
+            printf("Memory: %s", buffer);
+        }
+        pclose(fp);
+    }
+    
+    // Get hostname
+    if (gethostname(buffer, sizeof(buffer)) == 0) {
+        printf("Hostname: %s\n", buffer);
+    }
+}
+
+int main() {
+    printf("Linux System Information Collector\n");
+    printf("==================================\n\n");
+    
+    printLinuxOSInfo();
+    printInstalledPackages();
+    printSystemSpecs();
+    
+    printf("\n=== System Data Collection Complete ===\n");
+    return 0;
+}
+Task 3: Compile and Test Programs
+Subtask 3.1: Compile Windows Version
+Compile the Windows registry program using MinGW:
+
+x86_64-w64-mingw32-gcc -o registry_reader.exe registry_reader.c -ladvapi32
+Subtask 3.2: Compile Linux Version
+Compile the Linux system information program:
+
+gcc -o linux_system_info linux_system_info.c
+Subtask 3.3: Test Linux Version
+Run the Linux system information collector:
+
+./linux_system_info
+Subtask 3.4: Test Windows Version (Simulation)
+Run the Windows version using Wine:
+
+wine registry_reader.exe
+Note: The Windows version may show limited data in Wine simulation, but demonstrates the registry access methodology.
+
+Task 4: Create Enhanced Registry Scanner
+Subtask 4.1: Create Advanced Scanner
+Create an enhanced version with error handling:
+
+nano advanced_registry.c
+Add the following code:
+
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct {
+    char name[256];
+    char value[512];
+} RegistryEntry;
+
+int scanRegistryKey(HKEY hRootKey, const char* subKey, const char* valueName) {
+    HKEY hKey;
+    DWORD dwType;
+    DWORD dwSize = 512;
+    char szValue[512];
+    LONG result;
+    
+    result = RegOpenKeyEx(hRootKey, subKey, 0, KEY_READ, &hKey);
+    
+    if (result == ERROR_SUCCESS) {
+        printf("Successfully opened key: %s\n", subKey);
+        
+        if (valueName) {
+            result = RegQueryValueEx(hKey, valueName, NULL, &dwType, 
+                                   (LPBYTE)szValue, &dwSize);
+            if (result == ERROR_SUCCESS) {
+                printf("  %s: %s\n", valueName, szValue);
+            } else {
+                printf("  Failed to read value: %s (Error: %ld)\n", valueName, result);
+            }
+        } else {
+            // Enumerate all values in the key
+            DWORD dwIndex = 0;
+            char szValueName[256];
+            DWORD dwValueNameSize = 256;
+            
+            while (RegEnumValue(hKey, dwIndex, szValueName, &dwValueNameSize,
+                               NULL, &dwType, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
+                printf("  %s: %s\n", szValueName, szValue);
+                dwIndex++;
+                dwValueNameSize = 256;
+                dwSize = 512;
+            }
+        }
+        
+        RegCloseKey(hKey);
+        return 1;
+    } else {
+        printf("Failed to open key: %s (Error: %ld)\n", subKey, result);
+        return 0;
+    }
+}
+
+int main() {
+    printf("Advanced Windows Registry Scanner\n");
+    printf("=================================\n\n");
+    
+    // Scan OS Version Information
+    printf("--- OS Version Information ---\n");
+    scanRegistryKey(HKEY_LOCAL_MACHINE, 
+                   "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 
+                   "ProductName");
+    scanRegistryKey(HKEY_LOCAL_MACHINE, 
+                   "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 
+                   "CurrentVersion");
+    scanRegistryKey(HKEY_LOCAL_MACHINE, 
+                   "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 
+                   "CurrentBuild");
+    
+    // Scan Windows Update Information
+    printf("\n--- Windows Update Information ---\n");
+    scanRegistryKey(HKEY_LOCAL_MACHINE, 
+                   "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update", 
+                   NULL);
+    
+    printf("\n=== Registry Scan Complete ===\n");
+    return 0;
+}
+Subtask 4.2: Compile Advanced Version
+x86_64-w64-mingw32-gcc -o advanced_registry.exe advanced_registry.c -ladvapi32
+Subtask 4.3: Test Advanced Version
+wine advanced_registry.exe
+Task 5: Create Output Report Generator
+Subtask 5.1: Create Report Generator
+nano generate_report.sh
+Add the following script:
+
+#!/bin/bash
+
+echo "System Information Report" > system_report.txt
+echo "=========================" >> system_report.txt
+echo "Generated on: $(date)" >> system_report.txt
+echo "" >> system_report.txt
+
+echo "--- Linux System Information ---" >> system_report.txt
+./linux_system_info >> system_report.txt
+
+echo "" >> system_report.txt
+echo "--- Windows Registry Simulation ---" >> system_report.txt
+wine registry_reader.exe >> system_report.txt 2>/dev/null
+
+echo "" >> system_report.txt
+echo "--- Advanced Registry Scan ---" >> system_report.txt
+wine advanced_registry.exe >> system_report.txt 2>/dev/null
+
+echo "Report generated: system_report.txt"
+Subtask 5.2: Make Script Executable and Run
+chmod +x generate_report.sh
+./generate_report.sh
+Subtask 5.3: View Generated Report
+cat system_report.txt
+Verification and Testing
+Test Registry Access Methods
+Verify all programs compile and execute:
+
+ls -la *.exe
+ls -la linux_system_info
+file registry_reader.exe
+file linux_system_info
+Validate Output
+Check that programs generate meaningful output:
+
+echo "Testing Linux version:"
+./linux_system_info | head -10
+
+echo "Testing Windows simulation:"
+wine registry_reader.exe 2>/dev/null | head -10
+Troubleshooting
+Common Issues:
+
+Wine not configured: Run winecfg and select Windows 10
+Compilation errors: Ensure MinGW is properly installed
+Registry access denied: This is expected in Wine simulation
+Missing libraries: Install mingw-w64 package
+Conclusion
+You have successfully completed Lab 5 by:
+
+Installing cross-platform development tools on Linux
+Writing C programs that use Windows Registry APIs
+Creating both Windows and Linux versions for system information collection
+Implementing error handling and advanced registry scanning techniques
+Generating comprehensive system reports
+This lab demonstrates how to programmatically access system information using registry APIs, which is essential for system administration, security auditing, and software inventory management. The skills learned here apply to real-world scenarios where automated system information collection is required for compliance, monitoring, or troubleshooting purposes.

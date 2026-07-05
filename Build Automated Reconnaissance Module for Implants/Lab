@@ -1,0 +1,511 @@
+Build Automated Reconnaissance Module for Implants
+Learning Objectives
+By completing this lab, you will:
+
+Develop an automated reconnaissance module for collecting system data
+Implement process, service, and network enumeration techniques
+Build a data collection framework suitable for implant deployment
+Create modular Python scripts for systematic information gathering
+Prerequisites
+Basic Linux command line knowledge
+Understanding of Python programming fundamentals
+Familiarity with system processes and network concepts
+Knowledge of file permissions and directory structures
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required tools during the lab exercises.
+
+Task 1: Automate Process, Service, and Network Enumeration
+Subtask 1.1: Install Required Tools
+Install essential tools for reconnaissance activities:
+
+sudo apt update
+sudo apt install -y python3 python3-pip nmap netstat-nat psmisc net-tools
+pip3 install psutil netifaces
+Subtask 1.2: Create Process Enumeration Module
+Create the main reconnaissance directory and process enumeration script:
+
+mkdir -p ~/recon_module
+cd ~/recon_module
+Create the process enumeration script:
+
+cat > process_enum.py << 'EOF'
+#!/usr/bin/env python3
+import psutil
+import json
+import datetime
+
+class ProcessEnumerator:
+    def __init__(self):
+        self.data = {}
+    
+    def enumerate_processes(self):
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'username', 'cmdline', 'cpu_percent', 'memory_percent']):
+            try:
+                proc_info = proc.info
+                proc_info['create_time'] = datetime.datetime.fromtimestamp(proc.create_time()).isoformat()
+                processes.append(proc_info)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        
+        self.data['processes'] = processes
+        self.data['total_processes'] = len(processes)
+        return self.data
+    
+    def save_results(self, filename='process_enum.json'):
+        with open(filename, 'w') as f:
+            json.dump(self.data, f, indent=2)
+        print(f"Process enumeration saved to {filename}")
+
+if __name__ == "__main__":
+    enumerator = ProcessEnumerator()
+    results = enumerator.enumerate_processes()
+    enumerator.save_results()
+    print(f"Enumerated {results['total_processes']} processes")
+EOF
+
+chmod +x process_enum.py
+Subtask 1.3: Create Service Enumeration Module
+Create the service enumeration script:
+
+cat > service_enum.py << 'EOF'
+#!/usr/bin/env python3
+import subprocess
+import json
+import re
+
+class ServiceEnumerator:
+    def __init__(self):
+        self.data = {}
+    
+    def enumerate_systemd_services(self):
+        try:
+            result = subprocess.run(['systemctl', 'list-units', '--type=service', '--all', '--no-pager'], 
+                                  capture_output=True, text=True)
+            services = []
+            
+            for line in result.stdout.split('\n')[1:]:
+                if line.strip() and not line.startswith('UNIT'):
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        service = {
+                            'name': parts[0],
+                            'load': parts[1],
+                            'active': parts[2],
+                            'sub': parts[3],
+                            'description': ' '.join(parts[4:]) if len(parts) > 4 else ''
+                        }
+                        services.append(service)
+            
+            self.data['systemd_services'] = services
+            return services
+        except Exception as e:
+            print(f"Error enumerating systemd services: {e}")
+            return []
+    
+    def enumerate_listening_services(self):
+        try:
+            result = subprocess.run(['netstat', '-tlnp'], capture_output=True, text=True)
+            listening = []
+            
+            for line in result.stdout.split('\n'):
+                if 'LISTEN' in line:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        service = {
+                            'protocol': parts[0],
+                            'address': parts[3],
+                            'process': parts[6] if len(parts) > 6 else 'unknown'
+                        }
+                        listening.append(service)
+            
+            self.data['listening_services'] = listening
+            return listening
+        except Exception as e:
+            print(f"Error enumerating listening services: {e}")
+            return []
+    
+    def save_results(self, filename='service_enum.json'):
+        with open(filename, 'w') as f:
+            json.dump(self.data, f, indent=2)
+        print(f"Service enumeration saved to {filename}")
+
+if __name__ == "__main__":
+    enumerator = ServiceEnumerator()
+    systemd_services = enumerator.enumerate_systemd_services()
+    listening_services = enumerator.enumerate_listening_services()
+    enumerator.save_results()
+    print(f"Enumerated {len(systemd_services)} systemd services and {len(listening_services)} listening services")
+EOF
+
+chmod +x service_enum.py
+Subtask 1.4: Create Network Enumeration Module
+Create the network enumeration script:
+
+cat > network_enum.py << 'EOF'
+#!/usr/bin/env python3
+import netifaces
+import subprocess
+import json
+import socket
+
+class NetworkEnumerator:
+    def __init__(self):
+        self.data = {}
+    
+    def enumerate_interfaces(self):
+        interfaces = []
+        for interface in netifaces.interfaces():
+            iface_data = {'name': interface}
+            
+            # Get IP addresses
+            addrs = netifaces.ifaddresses(interface)
+            if netifaces.AF_INET in addrs:
+                iface_data['ipv4'] = addrs[netifaces.AF_INET]
+            if netifaces.AF_INET6 in addrs:
+                iface_data['ipv6'] = addrs[netifaces.AF_INET6]
+            
+            interfaces.append(iface_data)
+        
+        self.data['interfaces'] = interfaces
+        return interfaces
+    
+    def enumerate_routing_table(self):
+        try:
+            result = subprocess.run(['route', '-n'], capture_output=True, text=True)
+            routes = []
+            
+            for line in result.stdout.split('\n')[2:]:  # Skip headers
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 8:
+                        route = {
+                            'destination': parts[0],
+                            'gateway': parts[1],
+                            'genmask': parts[2],
+                            'flags': parts[3],
+                            'interface': parts[7]
+                        }
+                        routes.append(route)
+            
+            self.data['routing_table'] = routes
+            return routes
+        except Exception as e:
+            print(f"Error enumerating routing table: {e}")
+            return []
+    
+    def enumerate_arp_table(self):
+        try:
+            result = subprocess.run(['arp', '-a'], capture_output=True, text=True)
+            arp_entries = []
+            
+            for line in result.stdout.split('\n'):
+                if line.strip() and '(' in line:
+                    # Parse ARP entries
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        entry = {
+                            'hostname': parts[0],
+                            'ip': parts[1].strip('()'),
+                            'mac': parts[3] if len(parts) > 3 else 'unknown'
+                        }
+                        arp_entries.append(entry)
+            
+            self.data['arp_table'] = arp_entries
+            return arp_entries
+        except Exception as e:
+            print(f"Error enumerating ARP table: {e}")
+            return []
+    
+    def save_results(self, filename='network_enum.json'):
+        with open(filename, 'w') as f:
+            json.dump(self.data, f, indent=2)
+        print(f"Network enumeration saved to {filename}")
+
+if __name__ == "__main__":
+    enumerator = NetworkEnumerator()
+    interfaces = enumerator.enumerate_interfaces()
+    routes = enumerator.enumerate_routing_table()
+    arp = enumerator.enumerate_arp_table()
+    enumerator.save_results()
+    print(f"Enumerated {len(interfaces)} interfaces, {len(routes)} routes, {len(arp)} ARP entries")
+EOF
+
+chmod +x network_enum.py
+Task 2: Build Data Collection Framework for Implants
+Subtask 2.1: Create Main Reconnaissance Controller
+Create the main controller that orchestrates all enumeration modules:
+
+cat > recon_controller.py << 'EOF'
+#!/usr/bin/env python3
+import json
+import datetime
+import os
+import sys
+from process_enum import ProcessEnumerator
+from service_enum import ServiceEnumerator
+from network_enum import NetworkEnumerator
+
+class ReconController:
+    def __init__(self, output_dir='recon_output'):
+        self.output_dir = output_dir
+        self.timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.create_output_directory()
+    
+    def create_output_directory(self):
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+        
+        # Create timestamped subdirectory
+        self.session_dir = os.path.join(self.output_dir, f'recon_{self.timestamp}')
+        os.makedirs(self.session_dir, exist_ok=True)
+    
+    def run_process_enumeration(self):
+        print("[+] Running process enumeration...")
+        proc_enum = ProcessEnumerator()
+        results = proc_enum.enumerate_processes()
+        
+        output_file = os.path.join(self.session_dir, 'processes.json')
+        proc_enum.save_results(output_file)
+        return results
+    
+    def run_service_enumeration(self):
+        print("[+] Running service enumeration...")
+        svc_enum = ServiceEnumerator()
+        svc_enum.enumerate_systemd_services()
+        svc_enum.enumerate_listening_services()
+        
+        output_file = os.path.join(self.session_dir, 'services.json')
+        svc_enum.save_results(output_file)
+        return svc_enum.data
+    
+    def run_network_enumeration(self):
+        print("[+] Running network enumeration...")
+        net_enum = NetworkEnumerator()
+        net_enum.enumerate_interfaces()
+        net_enum.enumerate_routing_table()
+        net_enum.enumerate_arp_table()
+        
+        output_file = os.path.join(self.session_dir, 'network.json')
+        net_enum.save_results(output_file)
+        return net_enum.data
+    
+    def generate_summary_report(self, proc_data, svc_data, net_data):
+        summary = {
+            'timestamp': self.timestamp,
+            'summary': {
+                'total_processes': proc_data.get('total_processes', 0),
+                'systemd_services': len(svc_data.get('systemd_services', [])),
+                'listening_services': len(svc_data.get('listening_services', [])),
+                'network_interfaces': len(net_data.get('interfaces', [])),
+                'routing_entries': len(net_data.get('routing_table', [])),
+                'arp_entries': len(net_data.get('arp_table', []))
+            }
+        }
+        
+        summary_file = os.path.join(self.session_dir, 'summary.json')
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        print(f"\n[+] Reconnaissance Summary:")
+        print(f"    Processes: {summary['summary']['total_processes']}")
+        print(f"    Systemd Services: {summary['summary']['systemd_services']}")
+        print(f"    Listening Services: {summary['summary']['listening_services']}")
+        print(f"    Network Interfaces: {summary['summary']['network_interfaces']}")
+        print(f"    Routing Entries: {summary['summary']['routing_entries']}")
+        print(f"    ARP Entries: {summary['summary']['arp_entries']}")
+        print(f"\n[+] Results saved to: {self.session_dir}")
+    
+    def run_full_reconnaissance(self):
+        print(f"[+] Starting automated reconnaissance - {self.timestamp}")
+        
+        try:
+            proc_data = self.run_process_enumeration()
+            svc_data = self.run_service_enumeration()
+            net_data = self.run_network_enumeration()
+            
+            self.generate_summary_report(proc_data, svc_data, net_data)
+            print("\n[+] Reconnaissance completed successfully!")
+            
+        except Exception as e:
+            print(f"[-] Error during reconnaissance: {e}")
+            sys.exit(1)
+
+if __name__ == "__main__":
+    controller = ReconController()
+    controller.run_full_reconnaissance()
+EOF
+
+chmod +x recon_controller.py
+Subtask 2.2: Create Stealth and Persistence Features
+Create a stealth module for covert operations:
+
+cat > stealth_module.py << 'EOF'
+#!/usr/bin/env python3
+import time
+import random
+import os
+import signal
+import sys
+
+class StealthModule:
+    def __init__(self, min_delay=30, max_delay=300):
+        self.min_delay = min_delay
+        self.max_delay = max_delay
+        self.running = True
+        
+        # Set up signal handlers for graceful shutdown
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+    
+    def signal_handler(self, signum, frame):
+        print(f"\n[+] Received signal {signum}, shutting down gracefully...")
+        self.running = False
+    
+    def random_delay(self):
+        """Generate random delay to avoid detection patterns"""
+        delay = random.randint(self.min_delay, self.max_delay)
+        print(f"[+] Waiting {delay} seconds before next collection...")
+        time.sleep(delay)
+    
+    def check_system_load(self):
+        """Check system load to avoid running during high activity"""
+        try:
+            load_avg = os.getloadavg()[0]
+            if load_avg > 2.0:  # Adjust threshold as needed
+                print(f"[+] High system load detected ({load_avg:.2f}), delaying execution...")
+                time.sleep(60)
+                return False
+            return True
+        except:
+            return True
+    
+    def run_periodic_collection(self, controller):
+        """Run reconnaissance with stealth features"""
+        collection_count = 0
+        
+        while self.running:
+            if self.check_system_load():
+                print(f"\n[+] Starting collection cycle #{collection_count + 1}")
+                try:
+                    controller.run_full_reconnaissance()
+                    collection_count += 1
+                except Exception as e:
+                    print(f"[-] Collection failed: {e}")
+                
+                if self.running:  # Only delay if still running
+                    self.random_delay()
+            else:
+                time.sleep(30)  # Wait and check load again
+        
+        print(f"[+] Completed {collection_count} collection cycles")
+
+if __name__ == "__main__":
+    from recon_controller import ReconController
+    
+    stealth = StealthModule(min_delay=60, max_delay=180)
+    controller = ReconController()
+    
+    print("[+] Starting stealth reconnaissance module...")
+    print("[+] Press Ctrl+C to stop gracefully")
+    
+    stealth.run_periodic_collection(controller)
+EOF
+
+chmod +x stealth_module.py
+Subtask 2.3: Test the Reconnaissance Framework
+Run individual modules to verify functionality:
+
+# Test process enumeration
+python3 process_enum.py
+
+# Test service enumeration
+python3 service_enum.py
+
+# Test network enumeration
+python3 network_enum.py
+
+# Test full reconnaissance controller
+python3 recon_controller.py
+Verify the output files were created:
+
+ls -la recon_output/
+ls -la recon_output/recon_*/
+Subtask 2.4: Create Deployment Script
+Create a deployment script for easy installation:
+
+cat > deploy_recon.sh << 'EOF'
+#!/bin/bash
+
+echo "[+] Deploying Automated Reconnaissance Module"
+
+# Create deployment directory
+DEPLOY_DIR="/opt/recon_module"
+sudo mkdir -p $DEPLOY_DIR
+
+# Copy files
+sudo cp *.py $DEPLOY_DIR/
+sudo chmod +x $DEPLOY_DIR/*.py
+
+# Create systemd service for persistence (optional)
+cat > recon.service << 'SERVICE_EOF'
+[Unit]
+Description=Automated Reconnaissance Module
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/recon_module
+ExecStart=/usr/bin/python3 /opt/recon_module/stealth_module.py
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+
+echo "[+] Deployment completed to $DEPLOY_DIR"
+echo "[+] To install as service: sudo cp recon.service /etc/systemd/system/"
+echo "[+] To start service: sudo systemctl enable recon && sudo systemctl start recon"
+EOF
+
+chmod +x deploy_recon.sh
+Subtask 2.5: Test Stealth Module
+Test the stealth module with a short duration:
+
+# Run stealth module for testing (will run continuously until stopped)
+timeout 120 python3 stealth_module.py
+Check the collected data:
+
+find recon_output/ -name "*.json" -exec echo "=== {} ===" \; -exec head -20 {} \;
+Verification and Testing
+Verify all components are working correctly:
+
+# Check all scripts are executable
+ls -la *.py
+
+# Verify JSON output format
+python3 -m json.tool recon_output/recon_*/summary.json
+
+# Test individual modules
+echo "Testing process enumeration..."
+python3 process_enum.py > /dev/null && echo "✓ Process enumeration working"
+
+echo "Testing service enumeration..."
+python3 service_enum.py > /dev/null && echo "✓ Service enumeration working"
+
+echo "Testing network enumeration..."
+python3 network_enum.py > /dev/null && echo "✓ Network enumeration working"
+
+echo "Testing full controller..."
+python3 recon_controller.py > /dev/null && echo "✓ Full controller working"
+Conclusion
+You have successfully built an automated reconnaissance module capable of:
+
+Process Enumeration: Systematically collecting running process information including PIDs, usernames, and resource usage
+Service Discovery: Identifying systemd services and listening network services for attack surface analysis
+Network Mapping: Gathering interface configurations, routing tables, and ARP entries for network reconnaissance
+Stealth Operations: Implementing random delays and system load monitoring to avoid detection
+Data Framework: Creating a modular, JSON-based data collection system suitable for implant deployment
+This reconnaissance framework provides the foundation for advanced persistent threat simulation and security assessment activities. The modular design allows for easy extension and customization based on specific operational requirements.

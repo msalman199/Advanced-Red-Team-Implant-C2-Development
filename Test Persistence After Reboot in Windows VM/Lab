@@ -1,0 +1,194 @@
+Test Persistence After Reboot in Windows VM
+Learning Objectives
+By completing this lab, you will:
+
+Implement persistence mechanisms using Windows services and registry modifications
+Test persistence effectiveness after system reboot
+Understand how malware maintains access through system restarts
+Practice defensive analysis techniques for identifying persistent threats
+Prerequisites
+Basic understanding of Windows operating system concepts
+Familiarity with Linux command line operations
+Knowledge of virtualization concepts
+Understanding of Windows registry structure
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided system is bare metal with no pre-installed tools, so you will install all required software during the lab exercises.
+
+Required Tools Installation
+Task 1: Install Virtualization and Windows VM
+Subtask 1.1: Install QEMU and Dependencies
+sudo apt update
+sudo apt install -y qemu-kvm qemu-utils virtinst virt-manager libvirt-daemon-system
+sudo systemctl enable libvirtd
+sudo systemctl start libvirtd
+sudo usermod -a -G libvirt $USER
+Subtask 1.2: Download Windows 10 Evaluation ISO
+cd /tmp
+wget -O windows10.iso "https://software-download.microsoft.com/download/pr/19041.508.200927-1902.20h2_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso"
+Subtask 1.3: Create Windows VM
+# Create disk image
+qemu-img create -f qcow2 /tmp/windows10.qcow2 40G
+
+# Start Windows installation
+qemu-system-x86_64 \
+  -enable-kvm \
+  -m 4096 \
+  -cpu host \
+  -smp 2 \
+  -drive file=/tmp/windows10.qcow2,format=qcow2 \
+  -cdrom /tmp/windows10.iso \
+  -boot d \
+  -vnc :1 \
+  -netdev user,id=net0 \
+  -device rtl8139,netdev=net0
+Subtask 1.4: Install VNC Viewer and Connect
+sudo apt install -y tigervnc-viewer
+vncviewer localhost:5901
+Complete the Windows installation through the VNC viewer interface.
+
+Task 2: Implement Persistence Mechanisms
+Subtask 2.1: Create Persistence Scripts
+Create a batch script that will serve as our persistent payload:
+
+@echo off
+echo Persistence Test - %date% %time% >> C:\temp\persistence_log.txt
+timeout /t 60 /nobreak > nul
+goto :loop
+Save this as C:\temp\persistent_payload.bat in the Windows VM.
+
+Subtask 2.2: Registry-Based Persistence
+Open Command Prompt as Administrator in Windows VM and execute:
+
+# Create directory for logs
+mkdir C:\temp
+
+# Add registry entry for startup persistence
+reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "SystemUpdate" /t REG_SZ /d "C:\temp\persistent_payload.bat" /f
+
+# Verify registry entry
+reg query "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "SystemUpdate"
+Subtask 2.3: Service-Based Persistence
+Create a service wrapper script C:\temp\service_wrapper.bat:
+
+@echo off
+:loop
+echo Service Persistence - %date% %time% >> C:\temp\service_log.txt
+timeout /t 120 /nobreak > nul
+goto :loop
+Install as Windows service:
+
+# Create service using sc command
+sc create "WindowsSecurityUpdate" binPath= "C:\temp\service_wrapper.bat" start= auto DisplayName= "Windows Security Update Service"
+
+# Start the service
+sc start "WindowsSecurityUpdate"
+
+# Verify service status
+sc query "WindowsSecurityUpdate"
+Subtask 2.4: Scheduled Task Persistence
+# Create scheduled task for persistence
+schtasks /create /tn "SystemMaintenance" /tr "C:\temp\persistent_payload.bat" /sc onstart /ru SYSTEM /f
+
+# Verify scheduled task
+schtasks /query /tn "SystemMaintenance"
+Task 3: Test Persistence After Reboot
+Subtask 3.1: Document Pre-Reboot State
+Before rebooting, document the current state:
+
+# Check running processes
+tasklist | findstr persistent_payload
+
+# Check registry entries
+reg query "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run"
+
+# Check services
+sc query "WindowsSecurityUpdate"
+
+# Check scheduled tasks
+schtasks /query /tn "SystemMaintenance"
+
+# Check log files
+type C:\temp\persistence_log.txt
+type C:\temp\service_log.txt
+Subtask 3.2: Perform System Reboot
+Reboot the Windows VM:
+
+shutdown /r /t 0
+Wait for the system to restart and reconnect via VNC.
+
+Subtask 3.3: Verify Persistence After Reboot
+After reboot, check if persistence mechanisms are active:
+
+# Wait 2 minutes after boot, then check processes
+tasklist | findstr cmd
+tasklist | findstr persistent
+
+# Verify registry persistence is active
+reg query "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "SystemUpdate"
+
+# Check service status
+sc query "WindowsSecurityUpdate"
+
+# Verify scheduled task executed
+schtasks /query /tn "SystemMaintenance" /v
+
+# Check log files for new entries
+type C:\temp\persistence_log.txt
+type C:\temp\service_log.txt
+Subtask 3.4: Monitor Persistence Activity
+# Monitor for 5 minutes and check log growth
+timeout /t 300
+type C:\temp\persistence_log.txt | find /c "Persistence Test"
+type C:\temp\service_log.txt | find /c "Service Persistence"
+Task 4: Analysis and Documentation
+Subtask 4.1: Document Findings
+Create a summary of persistence effectiveness:
+
+echo === Persistence Test Results === > C:\temp\results.txt
+echo Registry Persistence: >> C:\temp\results.txt
+reg query "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "SystemUpdate" >> C:\temp\results.txt 2>&1
+
+echo Service Persistence: >> C:\temp\results.txt
+sc query "WindowsSecurityUpdate" >> C:\temp\results.txt
+
+echo Scheduled Task Persistence: >> C:\temp\results.txt
+schtasks /query /tn "SystemMaintenance" >> C:\temp\results.txt
+
+echo Log Entries Count: >> C:\temp\results.txt
+type C:\temp\persistence_log.txt | find /c "Persistence Test" >> C:\temp\results.txt
+type C:\temp\service_log.txt | find /c "Service Persistence" >> C:\temp\results.txt
+
+type C:\temp\results.txt
+Subtask 4.2: Clean Up Persistence Mechanisms
+# Remove registry entry
+reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "SystemUpdate" /f
+
+# Stop and delete service
+sc stop "WindowsSecurityUpdate"
+sc delete "WindowsSecurityUpdate"
+
+# Delete scheduled task
+schtasks /delete /tn "SystemMaintenance" /f
+
+# Remove files
+del C:\temp\persistent_payload.bat
+del C:\temp\service_wrapper.bat
+del C:\temp\persistence_log.txt
+del C:\temp\service_log.txt
+Verification Commands
+To verify successful completion:
+
+# From Linux host, check VM is running
+ps aux | grep qemu
+
+# Check VNC connection is available
+netstat -ln | grep 5901
+Common Issues and Solutions
+Issue: VNC connection fails Solution: Ensure QEMU is running with VNC enabled on port 5901
+
+Issue: Windows VM runs slowly Solution: Increase memory allocation to 6GB or 8GB if host has sufficient RAM
+
+Issue: Persistence mechanisms don't survive reboot Solution: Verify Administrator privileges when creating registry entries and services
+
+Conclusion
+You have successfully implemented and tested multiple persistence mechanisms in a Windows environment. This lab demonstrated how malware maintains access through system reboots using registry modifications, Windows services, and scheduled tasks. Understanding these techniques is crucial for cybersecurity professionals to identify and mitigate persistent threats. The hands-on experience with creating, testing, and cleaning up persistence mechanisms provides practical knowledge for both offensive security testing and defensive analysis.
